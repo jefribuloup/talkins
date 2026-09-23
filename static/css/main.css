@@ -203,6 +203,22 @@ a { color: inherit; }
 }
 .dropzone-status.error { color: var(--danger); }
 
+/* ---------- Dashboard ---------- */
+
+.dashboard {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 56px 32px 96px;
+}
+
+.dashboard-head { margin-bottom: 32px; }
+.dashboard-head h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(28px, 4vw, 38px);
+  margin: 0 0 10px;
+}
+
 /* ---------- Feature strip ---------- */
 
 .strip {
