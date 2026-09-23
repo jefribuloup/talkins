@@ -80,6 +80,18 @@ def create_file(file_id, session_id, filename, sheet_names):
     conn.close()
 
 
+def update_file_sheets(file_id, sheet_names):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE files SET sheet_names=%s WHERE id=%s",
+        (json.dumps(sheet_names), file_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def list_files(session_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
