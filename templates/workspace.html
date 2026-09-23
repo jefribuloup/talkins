@@ -11,14 +11,13 @@
 </head>
 <body data-file-id="{{ file_id }}">
 
-<header class="ws-topbar">
-  <a href="/" class="brand"><span class="brand-mark">▦</span><span class="brand-name">Meja Data</span></a>
-  <div class="ws-topbar-actions">
-    <button class="btn" id="btnReset">Reset ke asli</button>
-    <button class="btn" id="btnSlides">Jadikan slide</button>
-    <a class="btn btn-primary" id="btnDownload" href="/api/files/{{ file_id }}/download">Unduh salinan</a>
-  </div>
-</header>
+{% include "partials/navbar.html" %}
+
+<div class="ws-actions">
+  <button class="btn" id="btnReset" data-i18n="workspace.btnReset">Reset ke asli</button>
+  <button class="btn" id="btnSlides" data-i18n="workspace.btnSlides">Jadikan slide</button>
+  <a class="btn btn-primary" id="btnDownload" href="/api/files/{{ file_id }}/download" data-i18n="workspace.btnDownload">Unduh salinan</a>
+</div>
 
 <main class="ws-main">
 
@@ -27,16 +26,16 @@
 
     <div class="toolbar" id="toolbar">
       <select class="toolbar-select" id="opAction">
-        <option value="">Pilih aksi...</option>
-        <option value="drop_na">Buang baris kosong</option>
-        <option value="drop_duplicates">Buang duplikat</option>
-        <option value="sort">Urutkan kolom</option>
-        <option value="filter_rows">Filter baris</option>
-        <option value="cast_numeric">Ubah ke angka</option>
-        <option value="drop_column">Hapus kolom</option>
+        <option value="" data-i18n="workspace.toolbar.placeholder">Pilih aksi...</option>
+        <option value="drop_na" data-i18n="workspace.toolbar.dropna">Buang baris kosong</option>
+        <option value="drop_duplicates" data-i18n="workspace.toolbar.dedupe">Buang duplikat</option>
+        <option value="sort" data-i18n="workspace.toolbar.sort">Urutkan kolom</option>
+        <option value="filter_rows" data-i18n="workspace.toolbar.filter">Filter baris</option>
+        <option value="cast_numeric" data-i18n="workspace.toolbar.castnumeric">Ubah ke angka</option>
+        <option value="drop_column" data-i18n="workspace.toolbar.dropcolumn">Hapus kolom</option>
       </select>
       <div class="toolbar-params" id="opParams"></div>
-      <button class="btn btn-primary" id="opApply">Terapkan</button>
+      <button class="btn btn-primary" id="opApply" data-i18n="workspace.toolbar.apply">Terapkan</button>
     </div>
 
     <div class="table-wrap" id="tableWrap">
@@ -47,21 +46,21 @@
     </div>
 
     <div class="pager" id="pager">
-      <button class="btn" id="pagePrev">‹ Sebelumnya</button>
+      <button class="btn" id="pagePrev" data-i18n="workspace.pager.prev">‹ Sebelumnya</button>
       <span class="pager-info" id="pagerInfo"></span>
-      <button class="btn" id="pageNext">Selanjutnya ›</button>
+      <button class="btn" id="pageNext" data-i18n="workspace.pager.next">Selanjutnya ›</button>
     </div>
   </section>
 
   <section class="panel panel-chat">
     <div class="chat-log" id="chatLog">
-      <div class="chat-msg chat-msg-assistant">
+      <div class="chat-msg chat-msg-assistant" data-i18n="workspace.chat.intro">
         Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.
       </div>
     </div>
     <form class="chat-input-row" id="chatForm">
-      <input type="text" id="chatInput" placeholder="Tanya soal datamu..." autocomplete="off">
-      <button type="submit" class="btn btn-primary">Kirim</button>
+      <input type="text" id="chatInput" data-i18n-placeholder="workspace.chat.placeholder" placeholder="Tanya soal datamu..." autocomplete="off">
+      <button type="submit" class="btn btn-primary" data-i18n="workspace.chat.send">Kirim</button>
     </form>
   </section>
 
@@ -69,14 +68,18 @@
 
 <div class="modal" id="slideModal">
   <div class="modal-box">
-    <h3>Outline slide dari data ini</h3>
-    <input type="text" id="slideTopic" placeholder="Topik slide, mis. 'Ringkasan penjualan Q3'">
-    <button class="btn btn-primary" id="slideGenerate">Buat outline</button>
+    <h3 data-i18n="workspace.slide.title">Outline slide dari data ini</h3>
+    <input type="text" id="slideTopic" data-i18n-placeholder="workspace.slide.topicPlaceholder" placeholder="Topik slide, mis. 'Ringkasan penjualan Q3'">
+    <button class="btn btn-primary" id="slideGenerate" data-i18n="workspace.slide.generate">Buat outline</button>
     <div id="slideResult" class="slide-result"></div>
-    <button class="btn" id="slideClose">Tutup</button>
+    <button class="btn" id="slideClose" data-i18n="workspace.slide.close">Tutup</button>
   </div>
 </div>
 
+{% include "partials/footer.html" %}
+
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/workspace.js"></script>
 </body>
 </html>
