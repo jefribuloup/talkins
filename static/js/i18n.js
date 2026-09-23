@@ -27,6 +27,9 @@
       "dashboard.filelist.empty": "Belum ada file. Upload di atas untuk mulai.",
       "dashboard.filelist.open": "Buka",
       "dashboard.filelist.delete": "Hapus",
+      "dashboard.status.processing": "Memproses {name} ...",
+      "dashboard.status.success": "Berhasil: {count} sheet terbaca. Membuka ruang kerja...",
+      "dashboard.filelist.meta": "{count} sheet · diunggah {date}",
 
       "workspace.btnReset": "Reset ke asli",
       "workspace.btnSlides": "Jadikan slide",
@@ -74,6 +77,9 @@
       "dashboard.filelist.empty": "No files yet. Upload one above to get started.",
       "dashboard.filelist.open": "Open",
       "dashboard.filelist.delete": "Delete",
+      "dashboard.status.processing": "Processing {name} ...",
+      "dashboard.status.success": "Success: {count} sheet(s) read. Opening workspace...",
+      "dashboard.filelist.meta": "{count} sheet(s) · uploaded {date}",
 
       "workspace.btnReset": "Reset to original",
       "workspace.btnSlides": "Turn into slides",
