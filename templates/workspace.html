@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruang Kerja — Meja Data</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/workspace.css">
+</head>
+<body data-file-id="{{ file_id }}">
+
+<header class="ws-topbar">
+  <a href="/" class="brand"><span class="brand-mark">▦</span><span class="brand-name">Meja Data</span></a>
+  <div class="ws-topbar-actions">
+    <button class="btn" id="btnReset">Reset ke asli</button>
+    <button class="btn" id="btnSlides">Jadikan slide</button>
+    <a class="btn btn-primary" id="btnDownload" href="/api/files/{{ file_id }}/download">Unduh salinan</a>
+  </div>
+</header>
+
+<main class="ws-main">
+
+  <section class="panel panel-data">
+    <div class="sheet-tabs" id="sheetTabs"></div>
+
+    <div class="toolbar" id="toolbar">
+      <select class="toolbar-select" id="opAction">
+        <option value="">Pilih aksi...</option>
+        <option value="drop_na">Buang baris kosong</option>
+        <option value="drop_duplicates">Buang duplikat</option>
+        <option value="sort">Urutkan kolom</option>
+        <option value="filter_rows">Filter baris</option>
+        <option value="cast_numeric">Ubah ke angka</option>
+        <option value="drop_column">Hapus kolom</option>
+      </select>
+      <div class="toolbar-params" id="opParams"></div>
+      <button class="btn btn-primary" id="opApply">Terapkan</button>
+    </div>
+
+    <div class="table-wrap" id="tableWrap">
+      <table class="data-table" id="dataTable">
+        <thead><tr id="tableHead"></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="pager" id="pager">
+      <button class="btn" id="pagePrev">‹ Sebelumnya</button>
+      <span class="pager-info" id="pagerInfo"></span>
+      <button class="btn" id="pageNext">Selanjutnya ›</button>
+    </div>
+  </section>
+
+  <section class="panel panel-chat">
+    <div class="chat-log" id="chatLog">
+      <div class="chat-msg chat-msg-assistant">
+        Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.
+      </div>
+    </div>
+    <form class="chat-input-row" id="chatForm">
+      <input type="text" id="chatInput" placeholder="Tanya soal datamu..." autocomplete="off">
+      <button type="submit" class="btn btn-primary">Kirim</button>
+    </form>
+  </section>
+
+</main>
+
+<div class="modal" id="slideModal">
+  <div class="modal-box">
+    <h3>Outline slide dari data ini</h3>
+    <input type="text" id="slideTopic" placeholder="Topik slide, mis. 'Ringkasan penjualan Q3'">
+    <button class="btn btn-primary" id="slideGenerate">Buat outline</button>
+    <div id="slideResult" class="slide-result"></div>
+    <button class="btn" id="slideClose">Tutup</button>
+  </div>
+</div>
+
+<script src="/static/js/workspace.js"></script>
+</body>
+</html>
