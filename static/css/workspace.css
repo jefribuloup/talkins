@@ -1,17 +1,15 @@
-.ws-topbar {
+.ws-actions {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 24px;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 24px;
   border-bottom: 1px solid var(--grid-line);
 }
-.ws-topbar .brand { text-decoration: none; }
-.ws-topbar-actions { display: flex; gap: 10px; }
 
 .ws-main {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
-  height: calc(100vh - 57px);
+  height: calc(100vh - 130px);
 }
 
 .panel { display: flex; flex-direction: column; min-width: 0; }
