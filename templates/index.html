@@ -10,61 +10,52 @@
 </head>
 <body>
 
-<header class="topbar">
-  <div class="brand">
-    <span class="brand-mark">▦</span>
-    <span class="brand-name">Meja Data</span>
-  </div>
-  <nav class="topbar-nav">
-    <a href="#cara-kerja">Cara kerja</a>
-    <a href="#file-list">File kamu</a>
-  </nav>
-</header>
+{% include "partials/navbar.html" %}
 
 <main class="hero">
   <div class="hero-copy">
-    <h1>Ajak ngobrol<br>file Excel-mu.</h1>
-    <p class="lede">
+    <h1 data-i18n="index.hero.title" data-i18n-html>Ajak ngobrol<br>file Excel-mu.</h1>
+    <p class="lede" data-i18n="index.hero.lede">
       Upload satu atau banyak sheet, biar sistem yang rapikan datanya duluan.
       Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide —
       file asli di komputermu tidak pernah tersentuh sama sekali.
     </p>
+    <a href="/dashboard" class="btn btn-primary btn-cta" data-i18n="index.hero.cta">Buka Dashboard</a>
   </div>
 
-  <div class="dropzone" id="dropzone">
-    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" hidden>
+  <div class="dropzone hero-visual" id="heroVisual">
     <div class="dropzone-grid"></div>
     <div class="dropzone-content">
-      <div class="dropzone-plus">+</div>
-      <p class="dropzone-title">Tarik file .xlsx ke sini</p>
-      <p class="dropzone-sub">atau klik untuk memilih dari komputer</p>
+      <div class="dropzone-plus">▦</div>
+      <p class="dropzone-title" data-i18n="dashboard.dropzone.title">Tarik file .xlsx ke sini</p>
+      <p class="dropzone-sub" data-i18n="dashboard.dropzone.sub">atau klik untuk memilih dari komputer</p>
     </div>
-    <p class="dropzone-status" id="dropzoneStatus"></p>
   </div>
 </main>
 
 <section class="strip" id="cara-kerja">
   <div class="strip-row">
-    <span class="strip-index">Sheet apa saja</span>
-    <p>Single sheet atau puluhan sheet sekaligus, termasuk file dengan judul/logo di atas tabel — sistem mendeteksi baris header-nya sendiri.</p>
+    <span class="strip-index" data-i18n="index.feature1.label">Sheet apa saja</span>
+    <p data-i18n="index.feature1.text">Single sheet atau puluhan sheet sekaligus, termasuk file dengan judul/logo di atas tabel — sistem mendeteksi baris header-nya sendiri.</p>
   </div>
   <div class="strip-row">
-    <span class="strip-index">Salinan kerja, bukan file kamu</span>
-    <p>Setiap upload dibuatkan salinan di cloud. Yang kamu edit, filter, atau bersihkan adalah salinan itu — file lokalmu tetap seperti semula.</p>
+    <span class="strip-index" data-i18n="index.feature2.label">Salinan kerja, bukan file kamu</span>
+    <p data-i18n="index.feature2.text">Setiap upload dibuatkan salinan di cloud. Yang kamu edit, filter, atau bersihkan adalah salinan itu — file lokalmu tetap seperti semula.</p>
   </div>
   <div class="strip-row">
-    <span class="strip-index">Ngobrol bebas</span>
-    <p>Tanya pola, minta ringkasan, minta diubah jadi outline slide — bukan sekadar preview tabel statis.</p>
+    <span class="strip-index" data-i18n="index.feature3.label">Ngobrol bebas</span>
+    <p data-i18n="index.feature3.text">Tanya pola, minta ringkasan, minta diubah jadi outline slide — bukan sekadar preview tabel statis.</p>
   </div>
 </section>
 
-<section class="filelist" id="file-list">
-  <h2>File kamu di sesi ini</h2>
-  <div id="fileListBody" class="filelist-body">
-    <p class="filelist-empty">Belum ada file. Upload di atas untuk mulai.</p>
-  </div>
-</section>
+{% include "partials/footer.html" %}
 
-<script src="/static/js/upload.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+  document.getElementById("heroVisual").addEventListener("click", () => {
+    window.location.href = "/dashboard";
+  });
+</script>
 </body>
 </html>
