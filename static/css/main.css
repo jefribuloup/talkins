@@ -129,8 +129,10 @@ a { color: inherit; }
   line-height: 1.6;
   color: var(--text-muted);
   max-width: 46ch;
-  margin: 0;
+  margin: 0 0 28px;
 }
+
+.btn-cta { display: inline-block; padding: 12px 22px; font-size: 14px; text-decoration: none; }
 
 .dropzone {
   position: relative;
