@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meja Data — ngobrol dengan file Excel-mu</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">▦</span>
+    <span class="brand-name">Meja Data</span>
+  </div>
+  <nav class="topbar-nav">
+    <a href="#cara-kerja">Cara kerja</a>
+    <a href="#file-list">File kamu</a>
+  </nav>
+</header>
+
+<main class="hero">
+  <div class="hero-copy">
+    <h1>Ajak ngobrol<br>file Excel-mu.</h1>
+    <p class="lede">
+      Upload satu atau banyak sheet, biar sistem yang rapikan datanya duluan.
+      Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide —
+      file asli di komputermu tidak pernah tersentuh sama sekali.
+    </p>
+  </div>
+
+  <div class="dropzone" id="dropzone">
+    <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" hidden>
+    <div class="dropzone-grid"></div>
+    <div class="dropzone-content">
+      <div class="dropzone-plus">+</div>
+      <p class="dropzone-title">Tarik file .xlsx ke sini</p>
+      <p class="dropzone-sub">atau klik untuk memilih dari komputer</p>
+    </div>
+    <p class="dropzone-status" id="dropzoneStatus"></p>
+  </div>
+</main>
+
+<section class="strip" id="cara-kerja">
+  <div class="strip-row">
+    <span class="strip-index">Sheet apa saja</span>
+    <p>Single sheet atau puluhan sheet sekaligus, termasuk file dengan judul/logo di atas tabel — sistem mendeteksi baris header-nya sendiri.</p>
+  </div>
+  <div class="strip-row">
+    <span class="strip-index">Salinan kerja, bukan file kamu</span>
+    <p>Setiap upload dibuatkan salinan di cloud. Yang kamu edit, filter, atau bersihkan adalah salinan itu — file lokalmu tetap seperti semula.</p>
+  </div>
+  <div class="strip-row">
+    <span class="strip-index">Ngobrol bebas</span>
+    <p>Tanya pola, minta ringkasan, minta diubah jadi outline slide — bukan sekadar preview tabel statis.</p>
+  </div>
+</section>
+
+<section class="filelist" id="file-list">
+  <h2>File kamu di sesi ini</h2>
+  <div id="fileListBody" class="filelist-body">
+    <p class="filelist-empty">Belum ada file. Upload di atas untuk mulai.</p>
+  </div>
+</section>
+
+<script src="/static/js/upload.js"></script>
+</body>
+</html>
