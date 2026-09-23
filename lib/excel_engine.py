@@ -6,6 +6,7 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
 import io
 import uuid
 import math
+import datetime
 
 import pandas as pd
 import numpy as np
@@ -19,10 +20,19 @@ PAGE_SIZE = 50
 # ---------- Konversi aman ke JSON ----------
 
 def _to_jsonable(val):
-    if pd.isna(val):
+    if val is None:
         return None
-    if isinstance(val, (pd.Timestamp,)):
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date, datetime.time)):
         return val.isoformat()
+    if isinstance(val, (np.datetime64,)):
+        return pd.Timestamp(val).isoformat()
     if isinstance(val, (np.integer,)):
         return int(val)
     if isinstance(val, (np.floating,)):
@@ -105,6 +115,7 @@ def ingest_file(file_storage, session_id):
             "terkunci password."
         )
     file_id = str(uuid.uuid4())
+    db.create_file(file_id, session_id, filename, [])
 
     sheet_names = []
     for sheet_name in xls.sheet_names:
@@ -118,9 +129,10 @@ def ingest_file(file_storage, session_id):
         sheet_names.append(sheet_name)
 
     if not sheet_names:
+        db.delete_file(session_id, file_id)
         raise ValueError("Tidak ada data yang bisa dibaca dari file ini")
 
-    db.create_file(file_id, session_id, filename, sheet_names)
+    db.update_file_sheets(file_id, sheet_names)
     return {
         "file_id": file_id,
         "filename": filename,
