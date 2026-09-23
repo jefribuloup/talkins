@@ -149,5 +149,15 @@ def health():
     return jsonify({"status": "ok"})
 
 
+@app.route("/api/_init-db")
+def init_db_route():
+    """Endpoint sementara untuk bikin schema di Neon. HAPUS route ini setelah dipakai sekali."""
+    try:
+        db.init_db()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True, "message": "Schema berhasil dibuat/diverifikasi"})
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
