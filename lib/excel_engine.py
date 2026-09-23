@@ -83,13 +83,27 @@ def _clean_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
 
 # ---------- Ingest ----------
 
+def _pick_engine(filename: str) -> str:
+    lower = filename.lower()
+    if lower.endswith(".xls"):
+        return "xlrd"
+    return "openpyxl"
+
+
 def ingest_file(file_storage, session_id):
     filename = file_storage.filename
     if not filename.lower().endswith((".xlsx", ".xls", ".xlsm")):
         raise ValueError("Format harus .xlsx / .xls / .xlsm")
 
     raw_bytes = file_storage.read()
-    xls = pd.ExcelFile(io.BytesIO(raw_bytes))
+    engine = _pick_engine(filename)
+    try:
+        xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
+    except Exception:
+        raise ValueError(
+            "File tidak bisa dibaca. Pastikan file .xls/.xlsx tidak rusak atau "
+            "terkunci password."
+        )
     file_id = str(uuid.uuid4())
 
     sheet_names = []
