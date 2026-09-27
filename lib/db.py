@@ -44,9 +44,13 @@ def init_db():
             original_data JSONB NOT NULL,
             working_data JSONB NOT NULL,
             columns JSONB NOT NULL DEFAULT '[]',
+            formula_columns JSONB NOT NULL DEFAULT '{}',
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (file_id, sheet_name)
         );
+
+        ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}';
+        ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload';
 
         CREATE TABLE IF NOT EXISTS chat_messages (
             id SERIAL PRIMARY KEY,
@@ -68,12 +72,12 @@ def init_db():
 
 # ---------- Files ----------
 
-def create_file(file_id, session_id, filename, sheet_names):
+def create_file(file_id, session_id, filename, sheet_names, source="upload"):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO files (id, session_id, filename, sheet_names) VALUES (%s,%s,%s,%s)",
-        (file_id, session_id, filename, json.dumps(sheet_names)),
+        "INSERT INTO files (id, session_id, filename, sheet_names, source) VALUES (%s,%s,%s,%s,%s)",
+        (file_id, session_id, filename, json.dumps(sheet_names), source),
     )
     conn.commit()
     cur.close()
@@ -96,7 +100,7 @@ def list_files(session_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
-        "SELECT id, filename, sheet_names, status, uploaded_at FROM files "
+        "SELECT id, filename, sheet_names, status, source, uploaded_at FROM files "
         "WHERE session_id=%s ORDER BY uploaded_at DESC",
         (session_id,),
     )
@@ -127,24 +131,41 @@ def delete_file(session_id, file_id):
 
 # ---------- Sheets (original vs working copy) ----------
 
-def save_sheet(file_id, sheet_name, records, columns):
+def save_sheet(file_id, sheet_name, records, columns, formula_columns=None):
     """Dipanggil sekali saat upload: original == working di awal."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO sheets (file_id, sheet_name, original_data, working_data, columns)
-        VALUES (%s,%s,%s,%s,%s)
+        INSERT INTO sheets (file_id, sheet_name, original_data, working_data, columns, formula_columns)
+        VALUES (%s,%s,%s,%s,%s,%s)
         ON CONFLICT (file_id, sheet_name) DO UPDATE
         SET original_data=EXCLUDED.original_data,
             working_data=EXCLUDED.working_data,
-            columns=EXCLUDED.columns
+            columns=EXCLUDED.columns,
+            formula_columns=EXCLUDED.formula_columns
         """,
-        (file_id, sheet_name, json.dumps(records), json.dumps(records), json.dumps(columns)),
+        (
+            file_id, sheet_name, json.dumps(records), json.dumps(records),
+            json.dumps(columns), json.dumps(formula_columns or {}),
+        ),
     )
     conn.commit()
     cur.close()
     conn.close()
+
+
+def get_formula_columns(file_id, sheet_name):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT formula_columns FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else {}
 
 
 def get_sheet(file_id, sheet_name, version="working"):
