@@ -125,7 +125,19 @@
     const data = await res.json();
     state.totalPages = data.total_pages;
 
-    tableHead.innerHTML = data.columns.map((c) => `<th>${c}</th>`).join("");
+    const formulaCols = data.formula_columns || {};
+    tableHead.innerHTML = data.columns
+      .map((c) => {
+        const info = formulaCols[c];
+        if (!info) return `<th>${c}</th>`;
+        const pct = Math.round((info.ratio || 0) * 100);
+        const sample = (info.sample || "").replace(/"/g, "&quot;");
+        return (
+          `<th title="Kolom rumus/formula Excel (${pct}% sel), mis. ${sample}">` +
+          `${c} <span class="col-formula-badge">ƒx</span></th>`
+        );
+      })
+      .join("");
     tableBody.innerHTML = data.rows
       .map((row) => `<tr>${row.map((v) => `<td>${v === null ? "" : v}</td>`).join("")}</tr>`)
       .join("");
