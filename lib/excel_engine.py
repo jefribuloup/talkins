@@ -12,6 +12,7 @@ import datetime
 import pandas as pd
 import numpy as np
 import requests
+import openpyxl
 from flask import send_file
 
 from lib import db
@@ -71,10 +72,14 @@ def _detect_header_row(raw: pd.DataFrame, max_scan=10):
     return best_row
 
 
-def _clean_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
+def _clean_dataframe(raw: pd.DataFrame):
+    """Bersihkan dataframe mentah jadi tabel siap pakai.
+    Selain dataframe bersih, kembalikan juga peta posisi ASLI (di sheet Excel
+    sebelum dibersihkan) untuk tiap kolom & baris yang selamat -> dipakai nanti
+    untuk mencocokkan balik ke openpyxl saat deteksi kolom rumus/formula."""
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
     if raw.empty:
-        return raw
+        return raw, {}, []
     header_row = _detect_header_row(raw)
     header = raw.iloc[header_row]
     df = raw.iloc[header_row + 1:].copy()
@@ -88,9 +93,77 @@ def _clean_dataframe(raw: pd.DataFrame) -> pd.DataFrame:
         else:
             seen[name] = 0
         cols.append(name)
+
+    # raw.columns masih berupa posisi kolom ASLI (0-based) krn raw_df dibaca
+    # dengan header=None, jadi belum pernah di-reindex sebelum titik ini.
+    col_origin = dict(zip(cols, raw.columns.tolist()))
+
     df.columns = cols
-    df = df.dropna(how="all").reset_index(drop=True)
-    return df
+    df = df.dropna(how="all")
+    # df.index di titik ini masih posisi baris ASLI (0-based) di raw_df -> sama
+    # dengan posisi baris di sheet Excel aslinya (baris pertama sheet = index 0).
+    row_origin = df.index.tolist()
+    df = df.reset_index(drop=True)
+    return df, col_origin, row_origin
+
+
+# ---------- Deteksi kolom rumus/formula bawaan ----------
+
+MAX_FORMULA_SAMPLE_ROWS = 300  # cukup buat nentuin pola kolom, ga perlu scan semua baris
+
+
+def _detect_formula_columns(raw_bytes, filename, sheet_name, columns, col_origin, row_origin):
+    """Kembalikan {nama_kolom: {"count", "checked", "ratio", "sample"}} untuk
+    kolom yang selnya berisi rumus Excel asli (string diawali '=') di data
+    aslinya, bukan nilai statis biasa.
+
+    Kenapa perlu baca ulang file: pandas/openpyxl versi 'data_only' membaca
+    HASIL hitungan rumus (angkanya), bukan rumusnya sendiri -> itu yang dipakai
+    utk isi tabel/chat. Di sini kita baca file yang sama sekali lagi pakai
+    openpyxl mode data_only=False, khusus buat intip string rumus aslinya,
+    lalu dipetakan balik ke kolom yang sudah dibersihkan lewat col_origin/row_origin.
+
+    Hanya berlaku utk .xlsx/.xlsm — format .xls lama (engine xlrd) tidak
+    menyimpan rumus dengan cara yang bisa dibaca ulang seperti ini.
+    """
+    if not filename.lower().endswith((".xlsx", ".xlsm")):
+        return {}
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=False)
+    except Exception:
+        return {}
+    if sheet_name not in wb.sheetnames:
+        wb.close()
+        return {}
+    ws = wb[sheet_name]
+
+    sample_rows = row_origin[:MAX_FORMULA_SAMPLE_ROWS]
+    result = {}
+    for col_name in columns:
+        orig_col = col_origin.get(col_name)
+        if orig_col is None:
+            continue
+        checked = formula_hits = 0
+        sample_formula = None
+        for orig_row in sample_rows:
+            # +1 krn openpyxl 1-based, raw_df/col_origin/row_origin 0-based
+            val = ws.cell(row=orig_row + 1, column=orig_col + 1).value
+            if val is None:
+                continue
+            checked += 1
+            if isinstance(val, str) and val.startswith("="):
+                formula_hits += 1
+                if sample_formula is None:
+                    sample_formula = val
+        if formula_hits:
+            result[col_name] = {
+                "count": formula_hits,
+                "checked": checked,
+                "ratio": round(formula_hits / checked, 2) if checked else 0,
+                "sample": sample_formula,
+            }
+    wb.close()
+    return result
 
 
 # ---------- Ingest ----------
@@ -166,12 +239,15 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
     sheet_names = []
     for sheet_name in xls.sheet_names:
         raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-        clean_df = _clean_dataframe(raw_df)
+        clean_df, col_origin, row_origin = _clean_dataframe(raw_df)
         if clean_df.empty:
             continue
         columns = list(clean_df.columns.astype(str))
         records = df_to_records(clean_df)
-        db.save_sheet(file_id, sheet_name, records, columns)
+        formula_columns = _detect_formula_columns(
+            raw_bytes, filename, sheet_name, columns, col_origin, row_origin
+        )
+        db.save_sheet(file_id, sheet_name, records, columns, formula_columns)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -209,6 +285,7 @@ def preview_sheet(file_id, sheet_name, page=1):
         "page": page,
         "total_pages": total_pages,
         "total_rows": total_rows,
+        "formula_columns": db.get_formula_columns(file_id, sheet_name),
     }
 
 
@@ -284,6 +361,19 @@ def apply_operation(file_id, op):
     new_columns = list(df.columns.astype(str))
     new_records = df_to_records(df)
     db.update_working_data(file_id, sheet_name, new_records, new_columns)
+
+    # Sinkronkan info kolom-rumus kalau nama kolom berubah/kolom dihapus,
+    # supaya badge "ƒx" di UI & profil data buat chat tetap akurat.
+    if action in ("rename_column", "drop_column"):
+        formula_columns = db.get_formula_columns(file_id, sheet_name)
+        if formula_columns:
+            if action == "rename_column" and op["from"] in formula_columns:
+                formula_columns[op["to"]] = formula_columns.pop(op["from"])
+            elif action == "drop_column":
+                for c in op.get("columns", []):
+                    formula_columns.pop(c, None)
+            db.update_formula_columns(file_id, sheet_name, formula_columns)
+
     return {
         "columns": new_columns,
         "row_count": len(new_records),
