@@ -14,6 +14,7 @@
 {% include "partials/navbar.html" %}
 
 <div class="ws-actions">
+  <button class="btn" id="btnUpload" data-i18n="workspace.btnUpload">+ Unggah file</button>
   <button class="btn" id="btnReset" data-i18n="workspace.btnReset">Reset ke asli</button>
   <button class="btn" id="btnSlides" data-i18n="workspace.btnSlides">Jadikan slide</button>
   <a class="btn btn-primary" id="btnDownload" href="/api/files/{{ file_id }}/download" data-i18n="workspace.btnDownload">Unduh salinan</a>
@@ -65,6 +66,23 @@
   </section>
 
 </main>
+
+<div class="modal" id="uploadModal">
+  <div class="modal-box">
+    <h3 data-i18n="workspace.upload.title">Unggah file Excel</h3>
+    <div class="dropzone dropzone-compact" id="wsDropzone">
+      <input type="file" id="wsFileInput" accept=".xlsx,.xls,.xlsm" hidden>
+      <div class="dropzone-grid"></div>
+      <div class="dropzone-content">
+        <div class="dropzone-plus">+</div>
+        <p class="dropzone-title" data-i18n="dashboard.dropzone.title">Tarik file .xlsx ke sini</p>
+        <p class="dropzone-sub" data-i18n="dashboard.dropzone.sub">atau klik untuk memilih dari komputer</p>
+      </div>
+      <p class="dropzone-status" id="wsDropzoneStatus"></p>
+    </div>
+    <button class="btn" id="uploadModalClose" data-i18n="workspace.slide.close">Tutup</button>
+  </div>
+</div>
 
 <div class="modal" id="slideModal">
   <div class="modal-box">
