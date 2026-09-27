@@ -4,12 +4,14 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
       dan 'working' (identik) ke Neon. Manipulasi selanjutnya HANYA mengubah 'working'.
 """
 import io
+import re
 import uuid
 import math
 import datetime
 
 import pandas as pd
 import numpy as np
+import requests
 from flask import send_file
 
 from lib import db
@@ -106,16 +108,60 @@ def ingest_file(file_storage, session_id):
         raise ValueError("Format harus .xlsx / .xls / .xlsm")
 
     raw_bytes = file_storage.read()
+    return _ingest_bytes(raw_bytes, filename, session_id, source="upload")
+
+
+# ---------- Ingest dari link spreadsheet (mis. Google Sheets publik) ----------
+
+_GOOGLE_SHEET_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
+
+
+def _resolve_spreadsheet_url(url: str):
+    """Kalau link Google Sheets biasa -> ubah jadi link export .xlsx langsung.
+    Link lain (mis. URL download .xlsx dari cloud storage) dipakai apa adanya."""
+    m = _GOOGLE_SHEET_ID_RE.search(url)
+    if m:
+        sheet_id = m.group(1)
+        return (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx",
+            f"google-sheet-{sheet_id}.xlsx",
+        )
+    name = url.split("?")[0].rstrip("/").split("/")[-1] or "spreadsheet.xlsx"
+    if not name.lower().endswith((".xlsx", ".xls", ".xlsm")):
+        name += ".xlsx"
+    return url, name
+
+
+def ingest_from_url(url, session_id):
+    if not url or not url.strip().lower().startswith(("http://", "https://")):
+        raise ValueError("Link tidak valid")
+
+    fetch_url, filename = _resolve_spreadsheet_url(url.strip())
+    try:
+        resp = requests.get(fetch_url, timeout=20, allow_redirects=True)
+        resp.raise_for_status()
+    except requests.RequestException:
+        raise ValueError(
+            "Gagal mengambil data dari link. Pastikan link bisa diakses publik "
+            "(Google Sheets: Share -> Anyone with the link -> Viewer)."
+        )
+
+    return _ingest_bytes(resp.content, filename, session_id, source="url")
+
+
+# ---------- Logic inti ingest, dipakai baik oleh upload file maupun link ----------
+
+def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
     engine = _pick_engine(filename)
     try:
         xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
     except Exception:
         raise ValueError(
-            "File tidak bisa dibaca. Pastikan file .xls/.xlsx tidak rusak atau "
-            "terkunci password."
+            "File/spreadsheet tidak bisa dibaca. Pastikan formatnya didukung "
+            "(.xlsx/.xls/.xlsm) dan, untuk link, aksesnya publik."
         )
     file_id = str(uuid.uuid4())
-    db.create_file(file_id, session_id, filename, [])
+    db.create_file(file_id, session_id, filename, [], source=source)
 
     sheet_names = []
     for sheet_name in xls.sheet_names:
@@ -130,13 +176,14 @@ def ingest_file(file_storage, session_id):
 
     if not sheet_names:
         db.delete_file(session_id, file_id)
-        raise ValueError("Tidak ada data yang bisa dibaca dari file ini")
+        raise ValueError("Tidak ada data yang bisa dibaca dari file/link ini")
 
     db.update_file_sheets(file_id, sheet_names)
     return {
         "file_id": file_id,
         "filename": filename,
         "sheets": sheet_names,
+        "source": source,
     }
 
 
