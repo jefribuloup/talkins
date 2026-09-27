@@ -205,6 +205,71 @@
     }
   });
 
+  // ---------- Modal unggah file ----------
+
+  const uploadModal = document.getElementById("uploadModal");
+  const wsDropzone = document.getElementById("wsDropzone");
+  const wsFileInput = document.getElementById("wsFileInput");
+  const wsDropzoneStatus = document.getElementById("wsDropzoneStatus");
+
+  function t(key) {
+    return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
+  }
+
+  function format(str, vars) {
+    return str.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{${k}}`));
+  }
+
+  function setWsStatus(msg, isError) {
+    wsDropzoneStatus.textContent = msg || "";
+    wsDropzoneStatus.classList.toggle("error", !!isError);
+  }
+
+  document.getElementById("btnUpload").addEventListener("click", () => {
+    setWsStatus("", false);
+    uploadModal.classList.add("open");
+  });
+  document.getElementById("uploadModalClose").addEventListener("click", () => {
+    uploadModal.classList.remove("open");
+  });
+
+  async function uploadNewFile(file) {
+    if (!file) return;
+    setWsStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
+
+    const form = new FormData();
+    form.append("file", file);
+
+    try {
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload gagal");
+      setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
+      window.location.href = `/workspace/${data.file_id}`;
+    } catch (err) {
+      setWsStatus(err.message, true);
+    }
+  }
+
+  wsDropzone.addEventListener("click", () => wsFileInput.click());
+  wsFileInput.addEventListener("change", (e) => uploadNewFile(e.target.files[0]));
+
+  ["dragenter", "dragover"].forEach((evt) =>
+    wsDropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      wsDropzone.classList.add("dragover");
+    })
+  );
+  ["dragleave", "drop"].forEach((evt) =>
+    wsDropzone.addEventListener(evt, (e) => {
+      e.preventDefault();
+      wsDropzone.classList.remove("dragover");
+    })
+  );
+  wsDropzone.addEventListener("drop", (e) => {
+    uploadNewFile(e.dataTransfer.files[0]);
+  });
+
   // ---------- Init ----------
 
   loadSheets();
