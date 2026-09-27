@@ -33,6 +33,8 @@
 
       "workspace.btnUpload": "+ Unggah file",
       "workspace.upload.title": "Unggah file Excel",
+      "workspace.upload.historyTitle": "File yang pernah diunggah",
+      "workspace.upload.current": "Sedang dibuka",
       "workspace.btnReset": "Reset ke asli",
       "workspace.btnSlides": "Jadikan slide",
       "workspace.btnDownload": "Unduh salinan",
@@ -85,6 +87,8 @@
 
       "workspace.btnUpload": "+ Upload file",
       "workspace.upload.title": "Upload an Excel file",
+      "workspace.upload.historyTitle": "Previously uploaded files",
+      "workspace.upload.current": "Currently open",
       "workspace.btnReset": "Reset to original",
       "workspace.btnSlides": "Turn into slides",
       "workspace.btnDownload": "Download copy",
