@@ -168,6 +168,20 @@ def get_formula_columns(file_id, sheet_name):
     return row[0] if row else {}
 
 
+def update_formula_columns(file_id, sheet_name, formula_columns):
+    """Dipakai saat kolom di-rename/dihapus lewat manipulate, supaya info
+    'kolom mana yang rumus' tetap sinkron dgn nama/kolom working_data terkini."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE sheets SET formula_columns=%s WHERE file_id=%s AND sheet_name=%s",
+        (json.dumps(formula_columns), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def get_sheet(file_id, sheet_name, version="working"):
     col = "working_data" if version == "working" else "original_data"
     conn = get_conn()
