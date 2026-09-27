@@ -212,6 +212,9 @@
   const wsFileInput = document.getElementById("wsFileInput");
   const wsDropzoneStatus = document.getElementById("wsDropzoneStatus");
   const wsFileHistory = document.getElementById("wsFileHistory");
+  const wsUrlInput = document.getElementById("wsUrlInput");
+  const wsUrlSubmit = document.getElementById("wsUrlSubmit");
+  const wsUrlStatus = document.getElementById("wsUrlStatus");
 
   function t(key) {
     return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
@@ -276,6 +279,46 @@
   });
   document.getElementById("uploadModalClose").addEventListener("click", () => {
     uploadModal.classList.remove("open");
+  });
+
+  document.getElementById("uploadTabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".upload-tab");
+    if (!btn) return;
+    document.querySelectorAll(".upload-tab").forEach((el) => el.classList.toggle("active", el === btn));
+    document.getElementById("uploadPaneFile").hidden = btn.dataset.tab !== "file";
+    document.getElementById("uploadPaneLink").hidden = btn.dataset.tab !== "link";
+  });
+
+  function setWsUrlStatus(msg, isError) {
+    wsUrlStatus.textContent = msg || "";
+    wsUrlStatus.classList.toggle("error", !!isError);
+  }
+
+  async function uploadFromUrl() {
+    const url = wsUrlInput.value.trim();
+    if (!url) return;
+    setWsUrlStatus(t("workspace.upload.linkProcessing"), false);
+    wsUrlSubmit.disabled = true;
+    try {
+      const res = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal memproses link");
+      setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
+      window.location.href = `/workspace/${data.file_id}`;
+    } catch (err) {
+      setWsUrlStatus(err.message, true);
+    } finally {
+      wsUrlSubmit.disabled = false;
+    }
+  }
+
+  wsUrlSubmit.addEventListener("click", uploadFromUrl);
+  wsUrlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") uploadFromUrl();
   });
 
   async function uploadNewFile(file) {
