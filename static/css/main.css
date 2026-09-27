@@ -29,6 +29,11 @@
 
 * { box-sizing: border-box; }
 
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--grid-line) var(--bg);
+}
+
 html, body {
   margin: 0;
   padding: 0;
@@ -38,6 +43,21 @@ html, body {
   -webkit-font-smoothing: antialiased;
   transition: background 0.15s ease, color 0.15s ease;
 }
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+body > main { flex: 1 0 auto; }
+
+/* Skin native scrollbars to match the ledger theme everywhere they appear */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--grid-line); border: 2px solid var(--bg); background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: var(--bg); }
 
 a { color: inherit; }
 
@@ -58,8 +78,11 @@ a { color: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
   padding: 16px 32px;
   border-bottom: 1px solid var(--grid-line);
+  flex-shrink: 0;
 }
 
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
@@ -99,6 +122,7 @@ a { color: inherit; }
   border-top: 1px solid var(--grid-line);
   font-size: 13px;
   color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 .footer-row { display: flex; align-items: center; gap: 8px; }
