@@ -31,6 +31,8 @@
       "dashboard.status.success": "Berhasil: {count} sheet terbaca. Membuka ruang kerja...",
       "dashboard.filelist.meta": "{count} sheet · diunggah {date}",
 
+      "workspace.btnUpload": "+ Unggah file",
+      "workspace.upload.title": "Unggah file Excel",
       "workspace.btnReset": "Reset ke asli",
       "workspace.btnSlides": "Jadikan slide",
       "workspace.btnDownload": "Unduh salinan",
@@ -81,6 +83,8 @@
       "dashboard.status.success": "Success: {count} sheet(s) read. Opening workspace...",
       "dashboard.filelist.meta": "{count} sheet(s) · uploaded {date}",
 
+      "workspace.btnUpload": "+ Upload file",
+      "workspace.upload.title": "Upload an Excel file",
       "workspace.btnReset": "Reset to original",
       "workspace.btnSlides": "Turn into slides",
       "workspace.btnDownload": "Download copy",
