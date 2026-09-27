@@ -56,6 +56,17 @@ def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
     lines = [f"### Sheet: {sheet_name} ({len(df)} baris, {len(columns)} kolom)"]
     lines.append(f"Kolom: {', '.join(columns)}")
 
+    formula_columns = db.get_formula_columns(file_id, sheet_name)
+    if formula_columns:
+        parts = []
+        for col, info in formula_columns.items():
+            sample = info.get("sample", "")
+            parts.append(f"{col} (mis. {sample})" if sample else col)
+        lines.append(
+            "Kolom berisi RUMUS/FORMULA Excel bawaan (nilai di data adalah hasil "
+            "hitungannya, bukan input manual): " + "; ".join(parts)
+        )
+
     sample = df.head(max_sample_rows)
     lines.append("Contoh data:")
     lines.append(sample.to_csv(index=False))
