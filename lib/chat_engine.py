@@ -33,9 +33,15 @@ SYSTEM_PROMPT = (
 )
 
 
+MAX_PROFILE_CHARS = 6000       # batas total profil data yg dikirim ke LLM
+MAX_HISTORY_MESSAGES = 8       # batas jumlah pesan histori yg dikirim
+MAX_HISTORY_MSG_CHARS = 800    # batas panjang tiap pesan histori
+MAX_USER_MESSAGE_CHARS = 4000  # batas panjang pesan user
+
+
 # ---------- Bangun 'profil data' hemat token ----------
 
-def _profile_sheet(file_id, sheet_name, max_sample_rows=8, max_cat_values=5):
+def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
     columns = _get_columns(file_id, sheet_name)
     records = db.get_sheet(file_id, sheet_name, version="working")
     df = records_to_df(records, columns)
@@ -65,7 +71,26 @@ def _profile_sheet(file_id, sheet_name, max_sample_rows=8, max_cat_values=5):
 def _build_data_profile(file_id):
     sheet_names = db.list_sheet_names(file_id)
     parts = [_profile_sheet(file_id, s) for s in sheet_names]
-    return "\n\n".join(parts)
+    profile = "\n\n".join(parts)
+    if len(profile) > MAX_PROFILE_CHARS:
+        profile = (
+            profile[:MAX_PROFILE_CHARS]
+            + "\n\n...(profil dipotong karena file/sheet terlalu besar untuk dikirim penuh ke AI)"
+        )
+    return profile
+
+
+def _trim_history(history):
+    """Batasi jumlah & panjang pesan histori supaya payload ke LLM (terutama
+    Groq, yang punya limit ukuran request) tidak kena 413 Payload Too Large."""
+    trimmed = history[-MAX_HISTORY_MESSAGES:]
+    out = []
+    for h in trimmed:
+        content = h["content"]
+        if len(content) > MAX_HISTORY_MSG_CHARS:
+            content = content[:MAX_HISTORY_MSG_CHARS] + "…"
+        out.append({"role": h["role"], "content": content})
+    return out
 
 
 # ---------- Panggilan LLM ----------
@@ -126,8 +151,9 @@ def _call_llm(system_prompt, history, user_message):
 # ---------- API dipakai route Flask ----------
 
 def ask(session_id, file_id, message):
+    message = (message or "")[:MAX_USER_MESSAGE_CHARS]
     profile = _build_data_profile(file_id)
-    history = db.get_chat_history(session_id, file_id, limit=20)
+    history = _trim_history(db.get_chat_history(session_id, file_id, limit=20))
 
     full_system = SYSTEM_PROMPT + "\n\nProfil data saat ini:\n" + profile
     answer, provider_used = _call_llm(full_system, history, message)
