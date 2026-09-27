@@ -37,6 +37,7 @@ MAX_PROFILE_CHARS = 6000       # batas total profil data yg dikirim ke LLM
 MAX_HISTORY_MESSAGES = 8       # batas jumlah pesan histori yg dikirim
 MAX_HISTORY_MSG_CHARS = 800    # batas panjang tiap pesan histori
 MAX_USER_MESSAGE_CHARS = 4000  # batas panjang pesan user
+SHEET_SELECT_HISTORY_TAIL = 4  # jumlah pesan histori terakhir yg dilihat saat memilih sheet
 
 
 # ---------- Bangun 'profil data' hemat token ----------
@@ -68,16 +69,109 @@ def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
     return "\n".join(lines)
 
 
-def _build_data_profile(file_id):
-    sheet_names = db.list_sheet_names(file_id)
-    parts = [_profile_sheet(file_id, s) for s in sheet_names]
+def _build_data_profile(file_id, relevant_sheets, all_sheet_names):
+    """Bangun profil HANYA untuk sheet yang relevan (relevant_sheets), bukan
+    semua sheet di file — inti dari penghematan token. Sheet lain yang tidak
+    diprofilkan tetap disebut namanya (super murah) supaya LLM tahu itu ada
+    dan bisa minta klarifikasi kalau ternyata dibutuhkan."""
+    parts = [_profile_sheet(file_id, s) for s in relevant_sheets]
     profile = "\n\n".join(parts)
     if len(profile) > MAX_PROFILE_CHARS:
         profile = (
             profile[:MAX_PROFILE_CHARS]
             + "\n\n...(profil dipotong karena file/sheet terlalu besar untuk dikirim penuh ke AI)"
         )
+
+    skipped = [s for s in all_sheet_names if s not in relevant_sheets]
+    if skipped:
+        profile += (
+            "\n\n(Sheet lain yang tersedia di file ini tapi TIDAK diprofilkan di atas "
+            "karena dianggap tidak relevan dengan pertanyaan saat ini: "
+            + ", ".join(skipped)
+            + ". Kalau ternyata user butuh salah satu sheet ini, minta dia sebutkan "
+            "nama sheetnya secara eksplisit.)"
+        )
     return profile
+
+
+# ---------- Seleksi sheet relevan (hemat token) ----------
+
+def _sheet_index_text(file_id, sheet_names):
+    """Index super ringan: cuma nama sheet + nama kolom, TANPA data/statistik.
+    Jauh lebih murah daripada profil penuh — dipakai untuk MEMILIH sheet mana
+    yang relevan, sebelum profil penuh dibangun."""
+    lines = []
+    for s in sheet_names:
+        cols = _get_columns(file_id, s)
+        lines.append(f"- {s}: {', '.join(cols) if cols else '(tidak ada kolom terbaca)'}")
+    return "\n".join(lines)
+
+
+def _heuristic_match_sheets(message, history, sheet_names):
+    """Coba cocokkan nama sheet secara literal di pesan user, lalu di histori
+    chat terbaru kalau tidak ketemu -> gratis, tanpa panggil LLM sama sekali."""
+    text = (message or "").lower()
+    hits = [s for s in sheet_names if s.lower() in text]
+    if hits:
+        return hits
+
+    for h in reversed(history):
+        content = (h.get("content") or "").lower()
+        hits = [s for s in sheet_names if s.lower() in content]
+        if hits:
+            return hits
+    return []
+
+
+def _llm_select_sheets(file_id, message, history, sheet_names):
+    """Fallback kalau pencocokan nama sheet gagal: minta LLM memilih sheet
+    relevan HANYA berdasarkan index ringan (nama+kolom) + ekor histori chat,
+    bukan berdasarkan data/profil penuh -> payload seleksi ini sengaja dibuat
+    sekecil mungkin."""
+    index_text = _sheet_index_text(file_id, sheet_names)
+    tail = history[-SHEET_SELECT_HISTORY_TAIL:]
+    convo_tail = "\n".join(f"{h['role']}: {h['content']}" for h in tail) or "(belum ada)"
+
+    prompt = (
+        "Daftar sheet yang tersedia di file ini beserta kolomnya:\n"
+        f"{index_text}\n\n"
+        f"Ekor percakapan terakhir:\n{convo_tail}\n\n"
+        f"Pesan user sekarang: {message}\n\n"
+        "Tugasmu HANYA memilih sheet mana yang relevan untuk menjawab pesan user "
+        "ini, berdasarkan konteks obrolan di atas. Balas HANYA berupa JSON array "
+        "berisi nama-nama sheet persis seperti tertulis di daftar, contoh: "
+        '["Sheet1"]. Kalau pertanyaan bersifat umum, minta perbandingan/gabungan '
+        "antar sheet, atau kamu tidak yakin, balas array berisi SEMUA nama sheet. "
+        "Jangan ada teks atau penjelasan lain di luar JSON."
+    )
+    try:
+        text, _ = _call_llm(
+            "Kamu adalah router internal yang hanya memilih sheet relevan. "
+            "Selalu balas JSON array valid saja, tanpa teks lain.",
+            [],
+            prompt,
+        )
+        cleaned = text.strip().strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+        picked = json.loads(cleaned)
+        picked = [s for s in picked if s in sheet_names]
+        if picked:
+            return picked
+    except Exception:
+        pass
+    # Fallback paling aman kalau seleksi gagal/ambigu: pakai semua sheet
+    # (lebih baik boros token sesekali daripada salah/ke-skip datanya).
+    return list(sheet_names)
+
+
+def _select_relevant_sheets(file_id, message, history, sheet_names):
+    if len(sheet_names) <= 1:
+        return list(sheet_names)
+    hits = _heuristic_match_sheets(message, history, sheet_names)
+    if hits:
+        return hits
+    return _llm_select_sheets(file_id, message, history, sheet_names)
 
 
 def _trim_history(history):
@@ -152,8 +246,11 @@ def _call_llm(system_prompt, history, user_message):
 
 def ask(session_id, file_id, message):
     message = (message or "")[:MAX_USER_MESSAGE_CHARS]
-    profile = _build_data_profile(file_id)
     history = _trim_history(db.get_chat_history(session_id, file_id, limit=20))
+
+    sheet_names = db.list_sheet_names(file_id)
+    relevant_sheets = _select_relevant_sheets(file_id, message, history, sheet_names)
+    profile = _build_data_profile(file_id, relevant_sheets, sheet_names)
 
     full_system = SYSTEM_PROMPT + "\n\nProfil data saat ini:\n" + profile
     answer, provider_used = _call_llm(full_system, history, message)
@@ -161,7 +258,7 @@ def ask(session_id, file_id, message):
     db.save_chat_message(session_id, file_id, "user", message)
     db.save_chat_message(session_id, file_id, "assistant", answer)
 
-    return {"answer": answer, "provider": provider_used}
+    return {"answer": answer, "provider": provider_used, "sheets_used": relevant_sheets}
 
 
 def generate_slide_outline(file_id, spec):
