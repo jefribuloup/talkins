@@ -65,6 +65,17 @@ def upload():
     return jsonify(meta), 201
 
 
+@app.route("/api/upload-url", methods=["POST"])
+def upload_url():
+    url = (request.json or {}).get("url", "")
+    session_id = session["session_id"]
+    try:
+        meta = excel_engine.ingest_from_url(url, session_id)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(meta), 201
+
+
 @app.route("/api/files", methods=["GET"])
 def list_files():
     session_id = session["session_id"]
