@@ -5,6 +5,8 @@
   const sheetTabs = document.getElementById("sheetTabs");
   const tableHead = document.getElementById("tableHead");
   const tableBody = document.getElementById("tableBody");
+  const tableWrap = document.getElementById("tableWrap");
+  const formulaSummary = document.getElementById("formulaSummary");
   const pagerInfo = document.getElementById("pagerInfo");
   const pagePrev = document.getElementById("pagePrev");
   const pageNext = document.getElementById("pageNext");
@@ -93,7 +95,7 @@
     return html.join("") || "<p></p>";
   }
 
-  const state = { sheet: null, page: 1, totalPages: 1 };
+  const state = { sheet: null, page: 1, totalPages: 1, formulaHighlight: true };
 
   // ---------- Sheet tabs ----------
 
@@ -120,27 +122,77 @@
 
   // ---------- Tabel + pager ----------
 
+  function renderFormulaSummary(formulaCols) {
+    const names = Object.keys(formulaCols);
+    if (!names.length) {
+      formulaSummary.hidden = true;
+      formulaSummary.innerHTML = "";
+      return;
+    }
+    formulaSummary.hidden = false;
+    formulaSummary.innerHTML = `
+      <span class="formula-summary-icon">ƒx</span>
+      <span class="formula-summary-text">
+        <strong>${names.length}</strong> kolom mengandung rumus Excel bawaan:
+        <span class="formula-summary-names">${names.map(escapeHtml).join(", ")}</span>
+      </span>
+      <button type="button" class="formula-toggle-btn" id="formulaToggleBtn"
+        aria-pressed="${state.formulaHighlight}">
+        ${state.formulaHighlight ? "Sembunyikan sorotan" : "Sorot di tabel"}
+      </button>
+    `;
+    document.getElementById("formulaToggleBtn").addEventListener("click", () => {
+      state.formulaHighlight = !state.formulaHighlight;
+      tableWrap.classList.toggle("formula-highlight-off", !state.formulaHighlight);
+      renderFormulaSummary(formulaCols); // refresh label tombolnya
+    });
+  }
+
   async function loadPreview() {
     const res = await fetch(api(`/preview?sheet=${encodeURIComponent(state.sheet)}&page=${state.page}`));
     const data = await res.json();
     state.totalPages = data.total_pages;
 
     const formulaCols = data.formula_columns || {};
+    const formulaColIdx = new Set(
+      data.columns.map((c, i) => (formulaCols[c] ? i : -1)).filter((i) => i >= 0)
+    );
+
     tableHead.innerHTML = data.columns
       .map((c) => {
         const info = formulaCols[c];
         if (!info) return `<th>${c}</th>`;
         const pct = Math.round((info.ratio || 0) * 100);
-        const sample = (info.sample || "").replace(/"/g, "&quot;");
-        return (
-          `<th title="Kolom rumus/formula Excel (${pct}% sel), mis. ${sample}">` +
-          `${c} <span class="col-formula-badge">ƒx</span></th>`
-        );
+        const sample = escapeHtml(info.sample || "");
+        return `
+          <th>
+            ${c}
+            <span class="col-formula-badge" tabindex="0">
+              ƒx
+              <span class="formula-tooltip">
+                <span class="formula-tooltip-title">Kolom rumus Excel</span>
+                <code class="formula-tooltip-code">${sample}</code>
+                <span class="formula-tooltip-ratio-track">
+                  <span class="formula-tooltip-ratio-fill" style="width:${pct}%"></span>
+                </span>
+                <span class="formula-tooltip-meta">${info.count} dari ${info.checked} sel terisi (${pct}%) berupa rumus</span>
+              </span>
+            </span>
+          </th>`;
       })
       .join("");
+
     tableBody.innerHTML = data.rows
-      .map((row) => `<tr>${row.map((v) => `<td>${v === null ? "" : v}</td>`).join("")}</tr>`)
+      .map(
+        (row) =>
+          `<tr>${row
+            .map((v, i) => `<td${formulaColIdx.has(i) ? ' class="td-formula"' : ""}>${v === null ? "" : v}</td>`)
+            .join("")}</tr>`
+      )
       .join("");
+
+    tableWrap.classList.toggle("formula-highlight-off", !state.formulaHighlight);
+    renderFormulaSummary(formulaCols);
 
     pagerInfo.textContent = `Hal ${data.page} / ${data.total_pages} · ${data.total_rows} baris`;
     pagePrev.disabled = data.page <= 1;
