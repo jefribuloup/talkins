@@ -98,12 +98,16 @@
 .data-table th {
   position: sticky;
   top: 0;
+  z-index: 2;
   background: var(--panel-raised);
   color: var(--accent);
   font-weight: 500;
 }
 
+/* ---------- Badge kolom rumus + popover custom (ganti title bawaan browser) ---------- */
+
 .col-formula-badge {
+  position: relative;
   display: inline-block;
   margin-left: 5px;
   padding: 0 4px;
@@ -114,11 +118,169 @@
   line-height: 1.5;
   border-radius: 3px;
   color: #10130a;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), #e8d873);
+  background-size: 200% 200%;
   cursor: help;
+  animation: formula-badge-shimmer 3.5s ease-in-out infinite;
+}
+
+@keyframes formula-badge-shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.formula-tooltip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  width: 240px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--grid-line);
+  background: var(--panel-raised);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+  font-style: normal;
+  font-weight: 400;
+  white-space: normal;
+  cursor: auto;
+  animation: formula-tooltip-in 0.15s ease-out;
+}
+
+.col-formula-badge:hover .formula-tooltip,
+.col-formula-badge:focus .formula-tooltip,
+.col-formula-badge:focus-within .formula-tooltip {
+  display: block;
+}
+
+@keyframes formula-tooltip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.formula-tooltip-title {
+  display: block;
+  margin-bottom: 5px;
+  font-family: var(--font-display, inherit);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.formula-tooltip-code {
+  display: block;
+  margin-bottom: 8px;
+  padding: 5px 7px;
+  border-radius: 5px;
+  background: rgba(127, 127, 127, 0.16);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text, inherit);
+  word-break: break-word;
+  white-space: normal;
+}
+
+.formula-tooltip-ratio-track {
+  display: block;
+  height: 5px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  background: rgba(127, 127, 127, 0.2);
+  overflow: hidden;
+}
+
+.formula-tooltip-ratio-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.formula-tooltip-meta {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ---------- Sel di body tabel yang berasal dari rumus ---------- */
+
+.data-table td.td-formula {
+  background: rgba(232, 216, 115, 0.1);
+  border-left: 2px solid var(--accent);
+  transition: background 0.2s ease;
+}
+
+.table-wrap.formula-highlight-off td.td-formula {
+  background: none;
+  border-left-color: var(--grid-line);
+}
+
+/* ---------- Ringkasan kolom rumus di atas tabel ---------- */
+
+.formula-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--grid-line);
+  background: linear-gradient(90deg, rgba(232, 216, 115, 0.12), transparent 65%);
+  font-size: 12.5px;
+}
+
+.formula-summary[hidden] {
+  display: none;
+}
+
+.formula-summary-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #10130a;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: italic;
+}
+
+.formula-summary-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--text, inherit);
+}
+
+.formula-summary-names {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.formula-toggle-btn {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--grid-line);
+  background: var(--panel-raised);
+  color: var(--text, inherit);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.formula-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .data-table tbody tr:hover { background: var(--panel); }
+.data-table tbody tr:hover td.td-formula { background: rgba(232, 216, 115, 0.18); }
 
 .pager {
   display: flex;
