@@ -211,6 +211,7 @@
   const wsDropzone = document.getElementById("wsDropzone");
   const wsFileInput = document.getElementById("wsFileInput");
   const wsDropzoneStatus = document.getElementById("wsDropzoneStatus");
+  const wsFileHistory = document.getElementById("wsFileHistory");
 
   function t(key) {
     return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
@@ -225,9 +226,53 @@
     wsDropzoneStatus.classList.toggle("error", !!isError);
   }
 
+  function formatDate(iso) {
+    const lang = localStorage.getItem("meja-data-lang") || "id";
+    const locale = lang === "en" ? "en-US" : "id-ID";
+    const d = new Date(iso);
+    return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
+  }
+
+  async function loadWsFileHistory() {
+    try {
+      const res = await fetch("/api/files");
+      const files = await res.json();
+      if (!files.length) {
+        wsFileHistory.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
+        return;
+      }
+      wsFileHistory.innerHTML = "";
+      files.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "file-row" + (f.id === fileId ? " active" : "");
+        row.innerHTML = `
+          <div>
+            <div class="file-name">${f.filename}</div>
+            <div class="file-meta">${format(t("dashboard.filelist.meta"), { count: f.sheet_names.length, date: formatDate(f.uploaded_at) })}</div>
+          </div>
+          <a class="btn" href="/workspace/${f.id}">${f.id === fileId ? t("workspace.upload.current") : t("dashboard.filelist.open")}</a>
+          <button class="btn" data-id="${f.id}">${t("dashboard.filelist.delete")}</button>
+        `;
+        row.querySelector("button").addEventListener("click", async (e) => {
+          e.preventDefault();
+          await fetch(`/api/files/${f.id}`, { method: "DELETE" });
+          if (f.id === fileId) {
+            window.location.href = "/dashboard";
+            return;
+          }
+          loadWsFileHistory();
+        });
+        wsFileHistory.appendChild(row);
+      });
+    } catch (err) {
+      // biarkan tampilan default "belum ada file"
+    }
+  }
+
   document.getElementById("btnUpload").addEventListener("click", () => {
     setWsStatus("", false);
     uploadModal.classList.add("open");
+    loadWsFileHistory();
   });
   document.getElementById("uploadModalClose").addEventListener("click", () => {
     uploadModal.classList.remove("open");
