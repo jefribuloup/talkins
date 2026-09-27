@@ -173,6 +173,12 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal mendapat jawaban");
       thinkingEl.textContent = data.answer;
+      if (data.sheets_used && data.sheets_used.length) {
+        const m = document.createElement("div");
+        m.className = "chat-msg-meta";
+        m.textContent = "Sheet dianalisis: " + data.sheets_used.join(", ");
+        chatLog.appendChild(m);
+      }
     } catch (err) {
       thinkingEl.textContent = "Gagal: " + err.message;
     }
