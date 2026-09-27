@@ -1,371 +1,292 @@
-(function () {
-  const fileId = document.body.dataset.fileId;
-  const api = (path) => `/api/files/${fileId}${path}`;
+"""
+Chat dengan data: kirim 'profil data' (schema + sample + statistik ringkas, bukan seluruh
+isi file supaya hemat token) + histori + pertanyaan user ke LLM.
+Primary: Gemini Flash (gratis). Fallback otomatis: Groq (Llama 3.3 70B, gratis) kalau
+Gemini kena rate limit / error.
+"""
+import os
+import json
+import requests
+import pandas as pd
 
-  const sheetTabs = document.getElementById("sheetTabs");
-  const tableHead = document.getElementById("tableHead");
-  const tableBody = document.getElementById("tableBody");
-  const pagerInfo = document.getElementById("pagerInfo");
-  const pagePrev = document.getElementById("pagePrev");
-  const pageNext = document.getElementById("pageNext");
+from lib import db
+from lib.excel_engine import records_to_df, _get_columns
 
-  const opAction = document.getElementById("opAction");
-  const opParams = document.getElementById("opParams");
-  const opApply = document.getElementById("opApply");
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+GEMINI_URL = (
+    f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+)
 
-  const chatLog = document.getElementById("chatLog");
-  const chatForm = document.getElementById("chatForm");
-  const chatInput = document.getElementById("chatInput");
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-  const state = { sheet: null, page: 1, totalPages: 1 };
+SYSTEM_PROMPT = (
+    "Kamu adalah asisten analisis data di dalam sebuah web app 'chat with your data'. "
+    "Kamu diberi profil ringkas dari file Excel yang diunggah user (schema, sample baris, "
+    "statistik dasar) — BUKAN seluruh isi file. Jawab pertanyaan user tentang data tersebut "
+    "dengan jelas, boleh sertakan angka/insight, dan gunakan bahasa yang sama dengan user. "
+    "Jika user minta ubah/olah data, jelaskan hasilnya secara naratif (perubahan data yang "
+    "sesungguhnya dilakukan lewat fitur manipulasi terpisah di UI, bukan oleh chat ini). "
+    "Jika informasi tidak cukup dari profil data, katakan dengan jujur keterbatasannya.\n\n"
+    "Format jawaban pakai Markdown ringan supaya enak dibaca di chat (jangan berlebihan):\n"
+    "- **Tebalkan** istilah kunci, nama sheet/kolom, dan angka penting — jangan seluruh kalimat.\n"
+    "- Pakai bullet list ('- ') untuk poin-poin sejenis, numbered list ('1. ') kalau urutan penting.\n"
+    "- Pakai heading pendek ('### Judul') hanya kalau jawabannya punya beberapa bagian berbeda; "
+    "untuk jawaban singkat/satu poin, cukup paragraf biasa tanpa heading.\n"
+    "- Jangan pakai tabel Markdown (belum didukung tampilannya)."
+)
 
-  // ---------- Sheet tabs ----------
 
-  async function loadSheets() {
-    const res = await fetch(api("/sheets"));
-    const data = await res.json();
-    sheetTabs.innerHTML = "";
-    data.sheets.forEach((name, i) => {
-      const tab = document.createElement("div");
-      tab.className = "sheet-tab" + (i === 0 ? " active" : "");
-      tab.textContent = name;
-      tab.addEventListener("click", () => selectSheet(name));
-      sheetTabs.appendChild(tab);
-    });
-    if (data.sheets.length) selectSheet(data.sheets[0]);
-  }
+MAX_PROFILE_CHARS = 6000       # batas total profil data yg dikirim ke LLM
+MAX_HISTORY_MESSAGES = 8       # batas jumlah pesan histori yg dikirim
+MAX_HISTORY_MSG_CHARS = 800    # batas panjang tiap pesan histori
+MAX_USER_MESSAGE_CHARS = 4000  # batas panjang pesan user
+SHEET_SELECT_HISTORY_TAIL = 4  # jumlah pesan histori terakhir yg dilihat saat memilih sheet
 
-  function selectSheet(name) {
-    state.sheet = name;
-    state.page = 1;
-    [...sheetTabs.children].forEach((el) => el.classList.toggle("active", el.textContent === name));
-    loadPreview();
-  }
 
-  // ---------- Tabel + pager ----------
+# ---------- Bangun 'profil data' hemat token ----------
 
-  async function loadPreview() {
-    const res = await fetch(api(`/preview?sheet=${encodeURIComponent(state.sheet)}&page=${state.page}`));
-    const data = await res.json();
-    state.totalPages = data.total_pages;
+def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
+    columns = _get_columns(file_id, sheet_name)
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    df = records_to_df(records, columns)
 
-    tableHead.innerHTML = data.columns.map((c) => `<th>${c}</th>`).join("");
-    tableBody.innerHTML = data.rows
-      .map((row) => `<tr>${row.map((v) => `<td>${v === null ? "" : v}</td>`).join("")}</tr>`)
-      .join("");
+    lines = [f"### Sheet: {sheet_name} ({len(df)} baris, {len(columns)} kolom)"]
+    lines.append(f"Kolom: {', '.join(columns)}")
 
-    pagerInfo.textContent = `Hal ${data.page} / ${data.total_pages} · ${data.total_rows} baris`;
-    pagePrev.disabled = data.page <= 1;
-    pageNext.disabled = data.page >= data.total_pages;
-  }
+    sample = df.head(max_sample_rows)
+    lines.append("Contoh data:")
+    lines.append(sample.to_csv(index=False))
 
-  pagePrev.addEventListener("click", () => { state.page--; loadPreview(); });
-  pageNext.addEventListener("click", () => { state.page++; loadPreview(); });
+    for col in df.columns:
+        series = pd.to_numeric(df[col], errors="coerce")
+        if series.notna().sum() >= max(3, int(len(df) * 0.5)):
+            lines.append(
+                f"Statistik '{col}': min={series.min():.2f}, max={series.max():.2f}, "
+                f"rata-rata={series.mean():.2f}, jumlah_null={series.isna().sum()}"
+            )
+        else:
+            top = df[col].astype(str).value_counts().head(max_cat_values)
+            top_str = ", ".join(f"{k}({v})" for k, v in top.items())
+            lines.append(f"Nilai tersering '{col}': {top_str}")
 
-  // ---------- Toolbar manipulasi ----------
+    return "\n".join(lines)
 
-  const PARAM_FORMS = {
-    drop_na: () => `<input data-k="columns" placeholder="Kolom (opsional, pisah koma)">`,
-    drop_duplicates: () => `<input data-k="columns" placeholder="Kolom (opsional, pisah koma)">`,
-    sort: () => `
-      <input data-k="column" placeholder="Nama kolom">
-      <select data-k="ascending">
-        <option value="true">Naik (A-Z / kecil-besar)</option>
-        <option value="false">Turun (Z-A / besar-kecil)</option>
-      </select>`,
-    filter_rows: () => `
-      <input data-k="column" placeholder="Nama kolom">
-      <select data-k="condition">
-        <option value="eq">sama dengan</option>
-        <option value="neq">tidak sama dengan</option>
-        <option value="gt">lebih besar dari</option>
-        <option value="lt">lebih kecil dari</option>
-        <option value="contains">mengandung teks</option>
-      </select>
-      <input data-k="value" placeholder="Nilai">`,
-    cast_numeric: () => `<input data-k="columns" placeholder="Kolom (pisah koma)">`,
-    drop_column: () => `<input data-k="columns" placeholder="Kolom yang dihapus (pisah koma)">`,
-  };
 
-  opAction.addEventListener("change", () => {
-    const builder = PARAM_FORMS[opAction.value];
-    opParams.innerHTML = builder ? builder() : "";
-  });
+def _build_data_profile(file_id, relevant_sheets, all_sheet_names):
+    """Bangun profil HANYA untuk sheet yang relevan (relevant_sheets), bukan
+    semua sheet di file — inti dari penghematan token. Sheet lain yang tidak
+    diprofilkan tetap disebut namanya (super murah) supaya LLM tahu itu ada
+    dan bisa minta klarifikasi kalau ternyata dibutuhkan."""
+    parts = [_profile_sheet(file_id, s) for s in relevant_sheets]
+    profile = "\n\n".join(parts)
+    if len(profile) > MAX_PROFILE_CHARS:
+        profile = (
+            profile[:MAX_PROFILE_CHARS]
+            + "\n\n...(profil dipotong karena file/sheet terlalu besar untuk dikirim penuh ke AI)"
+        )
 
-  function collectParams() {
-    const out = {};
-    opParams.querySelectorAll("[data-k]").forEach((el) => {
-      out[el.dataset.k] = el.value;
-    });
-    if (out.columns !== undefined) {
-      out.columns = out.columns.trim() ? out.columns.split(",").map((s) => s.trim()) : [];
+    skipped = [s for s in all_sheet_names if s not in relevant_sheets]
+    if skipped:
+        profile += (
+            "\n\n(Sheet lain yang tersedia di file ini tapi TIDAK diprofilkan di atas "
+            "karena dianggap tidak relevan dengan pertanyaan saat ini: "
+            + ", ".join(skipped)
+            + ". Kalau ternyata user butuh salah satu sheet ini, minta dia sebutkan "
+            "nama sheetnya secara eksplisit.)"
+        )
+    return profile
+
+
+# ---------- Seleksi sheet relevan (hemat token) ----------
+
+def _sheet_index_text(file_id, sheet_names):
+    """Index super ringan: cuma nama sheet + nama kolom, TANPA data/statistik.
+    Jauh lebih murah daripada profil penuh — dipakai untuk MEMILIH sheet mana
+    yang relevan, sebelum profil penuh dibangun."""
+    lines = []
+    for s in sheet_names:
+        cols = _get_columns(file_id, s)
+        lines.append(f"- {s}: {', '.join(cols) if cols else '(tidak ada kolom terbaca)'}")
+    return "\n".join(lines)
+
+
+def _heuristic_match_sheets(message, history, sheet_names):
+    """Coba cocokkan nama sheet secara literal di pesan user, lalu di histori
+    chat terbaru kalau tidak ketemu -> gratis, tanpa panggil LLM sama sekali."""
+    text = (message or "").lower()
+    hits = [s for s in sheet_names if s.lower() in text]
+    if hits:
+        return hits
+
+    for h in reversed(history):
+        content = (h.get("content") or "").lower()
+        hits = [s for s in sheet_names if s.lower() in content]
+        if hits:
+            return hits
+    return []
+
+
+def _llm_select_sheets(file_id, message, history, sheet_names):
+    """Fallback kalau pencocokan nama sheet gagal: minta LLM memilih sheet
+    relevan HANYA berdasarkan index ringan (nama+kolom) + ekor histori chat,
+    bukan berdasarkan data/profil penuh -> payload seleksi ini sengaja dibuat
+    sekecil mungkin."""
+    index_text = _sheet_index_text(file_id, sheet_names)
+    tail = history[-SHEET_SELECT_HISTORY_TAIL:]
+    convo_tail = "\n".join(f"{h['role']}: {h['content']}" for h in tail) or "(belum ada)"
+
+    prompt = (
+        "Daftar sheet yang tersedia di file ini beserta kolomnya:\n"
+        f"{index_text}\n\n"
+        f"Ekor percakapan terakhir:\n{convo_tail}\n\n"
+        f"Pesan user sekarang: {message}\n\n"
+        "Tugasmu HANYA memilih sheet mana yang relevan untuk menjawab pesan user "
+        "ini, berdasarkan konteks obrolan di atas. Balas HANYA berupa JSON array "
+        "berisi nama-nama sheet persis seperti tertulis di daftar, contoh: "
+        '["Sheet1"]. Kalau pertanyaan bersifat umum, minta perbandingan/gabungan '
+        "antar sheet, atau kamu tidak yakin, balas array berisi SEMUA nama sheet. "
+        "Jangan ada teks atau penjelasan lain di luar JSON."
+    )
+    try:
+        text, _ = _call_llm(
+            "Kamu adalah router internal yang hanya memilih sheet relevan. "
+            "Selalu balas JSON array valid saja, tanpa teks lain.",
+            [],
+            prompt,
+        )
+        cleaned = text.strip().strip("`")
+        if cleaned.lower().startswith("json"):
+            cleaned = cleaned[4:].strip()
+        picked = json.loads(cleaned)
+        picked = [s for s in picked if s in sheet_names]
+        if picked:
+            return picked
+    except Exception:
+        pass
+    # Fallback paling aman kalau seleksi gagal/ambigu: pakai semua sheet
+    # (lebih baik boros token sesekali daripada salah/ke-skip datanya).
+    return list(sheet_names)
+
+
+def _select_relevant_sheets(file_id, message, history, sheet_names):
+    if len(sheet_names) <= 1:
+        return list(sheet_names)
+    hits = _heuristic_match_sheets(message, history, sheet_names)
+    if hits:
+        return hits
+    return _llm_select_sheets(file_id, message, history, sheet_names)
+
+
+def _trim_history(history):
+    """Batasi jumlah & panjang pesan histori supaya payload ke LLM (terutama
+    Groq, yang punya limit ukuran request) tidak kena 413 Payload Too Large."""
+    trimmed = history[-MAX_HISTORY_MESSAGES:]
+    out = []
+    for h in trimmed:
+        content = h["content"]
+        if len(content) > MAX_HISTORY_MSG_CHARS:
+            content = content[:MAX_HISTORY_MSG_CHARS] + "…"
+        out.append({"role": h["role"], "content": content})
+    return out
+
+
+# ---------- Panggilan LLM ----------
+
+def _call_gemini(system_prompt, history, user_message):
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY belum diset")
+    contents = []
+    for h in history:
+        role = "model" if h["role"] == "assistant" else "user"
+        contents.append({"role": role, "parts": [{"text": h["content"]}]})
+    contents.append({"role": "user", "parts": [{"text": user_message}]})
+
+    body = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": contents,
     }
-    if (out.ascending !== undefined) out.ascending = out.ascending === "true";
-    return out;
-  }
+    resp = requests.post(
+        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
+        json=body,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
-  opApply.addEventListener("click", async () => {
-    const action = opAction.value;
-    if (!action || !state.sheet) return;
-    const op = { action, sheet: state.sheet, ...collectParams() };
-    opApply.disabled = true;
-    try {
-      const res = await fetch(api("/manipulate"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(op),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal menerapkan aksi");
-      state.page = 1;
-      await loadPreview();
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      opApply.disabled = false;
-    }
-  });
 
-  document.getElementById("btnReset").addEventListener("click", async () => {
-    if (!confirm("Kembalikan salinan kerja ke kondisi awal upload?")) return;
-    await fetch(api("/reset"), { method: "POST" });
-    state.page = 1;
-    loadPreview();
-  });
+def _call_groq(system_prompt, history, user_message):
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY belum diset")
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in history:
+        messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": user_message})
 
-  // ---------- Chat ----------
+    resp = requests.post(
+        GROQ_URL,
+        headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+        json={"model": GROQ_MODEL, "messages": messages, "temperature": 0.4},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return data["choices"][0]["message"]["content"]
 
-  function appendMessage(role, text, meta) {
-    const el = document.createElement("div");
-    el.className = "chat-msg chat-msg-" + role;
-    el.textContent = text;
-    chatLog.appendChild(el);
-    if (meta) {
-      const m = document.createElement("div");
-      m.className = "chat-msg-meta";
-      m.textContent = meta;
-      chatLog.appendChild(m);
-    }
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
 
-  async function loadChatHistory() {
-    const res = await fetch(api("/chat/history"));
-    const rows = await res.json();
-    rows.forEach((r) => appendMessage(r.role === "user" ? "user" : "assistant", r.content));
-  }
+def _call_llm(system_prompt, history, user_message):
+    errors = []
+    for provider in (_call_gemini, _call_groq):
+        try:
+            text = provider(system_prompt, history, user_message)
+            return text, provider.__name__.replace("_call_", "")
+        except Exception as e:
+            errors.append(f"{provider.__name__}: {e}")
+    raise RuntimeError("Semua provider LLM gagal -> " + " | ".join(errors))
 
-  chatForm.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const message = chatInput.value.trim();
-    if (!message) return;
-    appendMessage("user", message);
-    chatInput.value = "";
-    appendMessage("assistant", "Berpikir...");
-    const thinkingEl = chatLog.lastChild;
 
-    try {
-      const res = await fetch(api("/chat"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal mendapat jawaban");
-      thinkingEl.textContent = data.answer;
-      if (data.sheets_used && data.sheets_used.length) {
-        const m = document.createElement("div");
-        m.className = "chat-msg-meta";
-        m.textContent = "Sheet dianalisis: " + data.sheets_used.join(", ");
-        chatLog.appendChild(m);
-      }
-    } catch (err) {
-      thinkingEl.textContent = "Gagal: " + err.message;
-    }
-  });
+# ---------- API dipakai route Flask ----------
 
-  // ---------- Modal slide ----------
+def ask(session_id, file_id, message):
+    message = (message or "")[:MAX_USER_MESSAGE_CHARS]
+    history = _trim_history(db.get_chat_history(session_id, file_id, limit=20))
 
-  const slideModal = document.getElementById("slideModal");
-  const slideResult = document.getElementById("slideResult");
+    sheet_names = db.list_sheet_names(file_id)
+    relevant_sheets = _select_relevant_sheets(file_id, message, history, sheet_names)
+    profile = _build_data_profile(file_id, relevant_sheets, sheet_names)
 
-  document.getElementById("btnSlides").addEventListener("click", () => slideModal.classList.add("open"));
-  document.getElementById("slideClose").addEventListener("click", () => slideModal.classList.remove("open"));
+    full_system = SYSTEM_PROMPT + "\n\nProfil data saat ini:\n" + profile
+    answer, provider_used = _call_llm(full_system, history, message)
 
-  document.getElementById("slideGenerate").addEventListener("click", async () => {
-    const topic = document.getElementById("slideTopic").value.trim();
-    slideResult.innerHTML = "Membuat outline...";
-    try {
-      const res = await fetch(api("/export/slides"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal membuat outline");
-      slideResult.innerHTML = data.slides
-        .map((s) => `<div class="slide-item"><h4>${s.title}</h4><ul>${(s.bullets || []).map((b) => `<li>${b}</li>`).join("")}</ul></div>`)
-        .join("");
-    } catch (err) {
-      slideResult.innerHTML = `<p>Gagal: ${err.message}</p>`;
-    }
-  });
+    db.save_chat_message(session_id, file_id, "user", message)
+    db.save_chat_message(session_id, file_id, "assistant", answer)
 
-  // ---------- Modal unggah file ----------
+    return {"answer": answer, "provider": provider_used, "sheets_used": relevant_sheets}
 
-  const uploadModal = document.getElementById("uploadModal");
-  const wsDropzone = document.getElementById("wsDropzone");
-  const wsFileInput = document.getElementById("wsFileInput");
-  const wsDropzoneStatus = document.getElementById("wsDropzoneStatus");
-  const wsFileHistory = document.getElementById("wsFileHistory");
-  const wsUrlInput = document.getElementById("wsUrlInput");
-  const wsUrlSubmit = document.getElementById("wsUrlSubmit");
-  const wsUrlStatus = document.getElementById("wsUrlStatus");
 
-  function t(key) {
-    return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
-  }
-
-  function format(str, vars) {
-    return str.replace(/\{(\w+)\}/g, (_, k) => (vars[k] !== undefined ? vars[k] : `{${k}}`));
-  }
-
-  function setWsStatus(msg, isError) {
-    wsDropzoneStatus.textContent = msg || "";
-    wsDropzoneStatus.classList.toggle("error", !!isError);
-  }
-
-  function formatDate(iso) {
-    const lang = localStorage.getItem("meja-data-lang") || "id";
-    const locale = lang === "en" ? "en-US" : "id-ID";
-    const d = new Date(iso);
-    return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
-  }
-
-  async function loadWsFileHistory() {
-    try {
-      const res = await fetch("/api/files");
-      const files = await res.json();
-      if (!files.length) {
-        wsFileHistory.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
-        return;
-      }
-      wsFileHistory.innerHTML = "";
-      files.forEach((f) => {
-        const row = document.createElement("div");
-        row.className = "file-row" + (f.id === fileId ? " active" : "");
-        row.innerHTML = `
-          <div>
-            <div class="file-name">${f.filename}</div>
-            <div class="file-meta">${format(t("dashboard.filelist.meta"), { count: f.sheet_names.length, date: formatDate(f.uploaded_at) })}</div>
-          </div>
-          <a class="btn" href="/workspace/${f.id}">${f.id === fileId ? t("workspace.upload.current") : t("dashboard.filelist.open")}</a>
-          <button class="btn" data-id="${f.id}">${t("dashboard.filelist.delete")}</button>
-        `;
-        row.querySelector("button").addEventListener("click", async (e) => {
-          e.preventDefault();
-          await fetch(`/api/files/${f.id}`, { method: "DELETE" });
-          if (f.id === fileId) {
-            window.location.href = "/dashboard";
-            return;
-          }
-          loadWsFileHistory();
-        });
-        wsFileHistory.appendChild(row);
-      });
-    } catch (err) {
-      // biarkan tampilan default "belum ada file"
-    }
-  }
-
-  document.getElementById("btnUpload").addEventListener("click", () => {
-    setWsStatus("", false);
-    uploadModal.classList.add("open");
-    loadWsFileHistory();
-  });
-  document.getElementById("uploadModalClose").addEventListener("click", () => {
-    uploadModal.classList.remove("open");
-  });
-
-  document.getElementById("uploadTabs").addEventListener("click", (e) => {
-    const btn = e.target.closest(".upload-tab");
-    if (!btn) return;
-    document.querySelectorAll(".upload-tab").forEach((el) => el.classList.toggle("active", el === btn));
-    document.getElementById("uploadPaneFile").hidden = btn.dataset.tab !== "file";
-    document.getElementById("uploadPaneLink").hidden = btn.dataset.tab !== "link";
-  });
-
-  function setWsUrlStatus(msg, isError) {
-    wsUrlStatus.textContent = msg || "";
-    wsUrlStatus.classList.toggle("error", !!isError);
-  }
-
-  async function uploadFromUrl() {
-    const url = wsUrlInput.value.trim();
-    if (!url) return;
-    setWsUrlStatus(t("workspace.upload.linkProcessing"), false);
-    wsUrlSubmit.disabled = true;
-    try {
-      const res = await fetch("/api/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal memproses link");
-      setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
-      window.location.href = `/workspace/${data.file_id}`;
-    } catch (err) {
-      setWsUrlStatus(err.message, true);
-    } finally {
-      wsUrlSubmit.disabled = false;
-    }
-  }
-
-  wsUrlSubmit.addEventListener("click", uploadFromUrl);
-  wsUrlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") uploadFromUrl();
-  });
-
-  async function uploadNewFile(file) {
-    if (!file) return;
-    setWsStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
-
-    const form = new FormData();
-    form.append("file", file);
-
-    try {
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload gagal");
-      setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
-      window.location.href = `/workspace/${data.file_id}`;
-    } catch (err) {
-      setWsStatus(err.message, true);
-    }
-  }
-
-  wsDropzone.addEventListener("click", () => wsFileInput.click());
-  wsFileInput.addEventListener("change", (e) => uploadNewFile(e.target.files[0]));
-
-  ["dragenter", "dragover"].forEach((evt) =>
-    wsDropzone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      wsDropzone.classList.add("dragover");
-    })
-  );
-  ["dragleave", "drop"].forEach((evt) =>
-    wsDropzone.addEventListener(evt, (e) => {
-      e.preventDefault();
-      wsDropzone.classList.remove("dragover");
-    })
-  );
-  wsDropzone.addEventListener("drop", (e) => {
-    uploadNewFile(e.dataTransfer.files[0]);
-  });
-
-  // ---------- Init ----------
-
-  loadSheets();
-  loadChatHistory();
-})();
+def generate_slide_outline(file_id, spec):
+    profile = _build_data_profile(file_id)
+    topic = spec.get("topic", "Ringkasan data")
+    prompt = (
+        f"Buatkan outline slide presentasi tentang: {topic}.\n"
+        "Berdasarkan profil data berikut, balas HANYA dalam format JSON array, "
+        "tanpa teks lain, tanpa markdown code fence. Setiap elemen array: "
+        '{"title": "...", "bullets": ["...", "..."]}. Maksimal 8 slide.\n\n'
+        f"Profil data:\n{profile}"
+    )
+    text, _ = _call_llm(
+        "Kamu adalah asisten pembuat outline slide dari data. Selalu balas JSON valid saja.",
+        [],
+        prompt,
+    )
+    cleaned = text.strip().strip("`")
+    if cleaned.lower().startswith("json"):
+        cleaned = cleaned[4:].strip()
+    try:
+        slides = json.loads(cleaned)
+    except json.JSONDecodeError:
+        slides = [{"title": "Ringkasan", "bullets": [text[:300]]}]
+    return {"slides": slides}
