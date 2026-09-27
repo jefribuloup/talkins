@@ -70,15 +70,29 @@
 <div class="modal" id="uploadModal">
   <div class="modal-box">
     <h3 data-i18n="workspace.upload.title">Unggah file Excel</h3>
-    <div class="dropzone dropzone-compact" id="wsDropzone">
-      <input type="file" id="wsFileInput" accept=".xlsx,.xls,.xlsm" hidden>
-      <div class="dropzone-grid"></div>
-      <div class="dropzone-content">
-        <div class="dropzone-plus">+</div>
-        <p class="dropzone-title" data-i18n="dashboard.dropzone.title">Tarik file .xlsx ke sini</p>
-        <p class="dropzone-sub" data-i18n="dashboard.dropzone.sub">atau klik untuk memilih dari komputer</p>
+
+    <div class="upload-tabs" id="uploadTabs">
+      <button type="button" class="upload-tab active" data-tab="file" data-i18n="workspace.upload.tabFile">File</button>
+      <button type="button" class="upload-tab" data-tab="link" data-i18n="workspace.upload.tabLink">Link spreadsheet</button>
+    </div>
+
+    <div class="upload-pane" id="uploadPaneFile">
+      <div class="dropzone dropzone-compact" id="wsDropzone">
+        <input type="file" id="wsFileInput" accept=".xlsx,.xls,.xlsm" hidden>
+        <div class="dropzone-grid"></div>
+        <div class="dropzone-content">
+          <div class="dropzone-plus">+</div>
+          <p class="dropzone-title" data-i18n="dashboard.dropzone.title">Tarik file .xlsx ke sini</p>
+          <p class="dropzone-sub" data-i18n="dashboard.dropzone.sub">atau klik untuk memilih dari komputer</p>
+        </div>
+        <p class="dropzone-status" id="wsDropzoneStatus"></p>
       </div>
-      <p class="dropzone-status" id="wsDropzoneStatus"></p>
+    </div>
+
+    <div class="upload-pane" id="uploadPaneLink" hidden>
+      <input type="text" id="wsUrlInput" data-i18n-placeholder="workspace.upload.linkPlaceholder" placeholder="Tempel link Google Sheets (publik) atau URL file .xlsx...">
+      <button class="btn btn-primary" id="wsUrlSubmit" data-i18n="workspace.upload.linkSubmit">Proses link</button>
+      <p class="dropzone-status" id="wsUrlStatus"></p>
     </div>
 
     <h4 class="upload-history-title" data-i18n="workspace.upload.historyTitle">File yang pernah diunggah</h4>
