@@ -212,6 +212,16 @@
 
 .dropzone-compact { min-height: 160px; margin-bottom: 14px; }
 
+.upload-history-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  margin: 4px 0 8px;
+  color: var(--text-muted);
+}
+.upload-history-body { max-height: 220px; overflow-y: auto; margin-bottom: 14px; }
+.upload-history-body .file-row { grid-template-columns: 1fr auto auto; font-size: 13px; }
+.upload-history-body .file-row.active { border-left: 2px solid var(--accent); padding-left: 8px; }
+
 .slide-result { margin: 16px 0; }
 .slide-item {
   border: 1px solid var(--grid-line);
