@@ -104,6 +104,34 @@
   font-weight: 500;
 }
 
+/* ---------- Header gaya spreadsheet: baris huruf (A, B, C) + baris nama kolom ---------- */
+
+.data-table { --letters-h: 26px; }
+
+/* Dua baris header sama-sama sticky; tinggi baris huruf dikunci supaya baris nama
+   menempel tepat di bawahnya (dikurangi 1px agar garis border tidak dobel). */
+.data-table .head-letters th {
+  top: 0;
+  height: var(--letters-h);
+  box-sizing: border-box;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: calc(var(--letters-h) - 2px);
+}
+.data-table .head-names th { top: calc(var(--letters-h) - 1px); }
+
+.data-table th.col-letter {
+  text-align: center;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.data-table th.col-name {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ---------- Pemilihan sel gaya Excel ---------- */
 
 .data-table { user-select: none; -webkit-user-select: none; }
@@ -130,6 +158,8 @@
 
 .data-table td.row-gutter:hover,
 .data-table th[data-col]:hover { color: var(--accent); }
+.data-table td.gutter-active:hover,
+.data-table th.gutter-active:hover { color: #10130a; }
 
 .data-table td.gutter-active,
 .data-table th.gutter-active {
@@ -269,6 +299,19 @@
 }
 
 .fp-cell-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.fp-letter {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: var(--text-muted);
+  background: rgba(127, 127, 127, 0.2);
+}
 .fp-col { font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-row { font-family: var(--font-mono); font-size: 11px; color: var(--text-muted); }
 
