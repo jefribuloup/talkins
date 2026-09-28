@@ -3,6 +3,7 @@
   const api = (path) => `/api/files/${fileId}${path}`;
 
   const sheetTabs = document.getElementById("sheetTabs");
+  const tableLetters = document.getElementById("tableLetters");
   const tableHead = document.getElementById("tableHead");
   const tableBody = document.getElementById("tableBody");
   const tableWrap = document.getElementById("tableWrap");
@@ -164,14 +165,22 @@
     const formulaCols = data.formula_columns || {};
     const offset = (data.page - 1) * data.page_size;
 
-    // Header: pojok kosong (gutter nomor baris) + judul kolom.
-    // Klik judul kolom = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
+    // Header gaya spreadsheet, dua baris:
+    //   1) huruf kolom A, B, C... (huruf di sheet ASLI, jadi cocok dgn rumus seperti =B4*C4)
+    //   2) nama kolom hasil deteksi (tetap dipakai toolbar, chat, dan tab Rumus)
+    // Klik salah satunya = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
+    tableLetters.innerHTML =
+      `<th class="row-gutter"></th>` +
+      data.columns
+        .map((c, j) => `<th class="col-letter" data-col="${j}">${colLetter(data, c, j)}</th>`)
+        .join("");
+
     tableHead.innerHTML =
       `<th class="row-gutter"></th>` +
       data.columns
         .map((c, j) => {
           const tag = formulaCols[c] ? `<span class="col-formula-tag">ƒx</span>` : "";
-          return `<th data-col="${j}">${escapeHtml(c)}${tag}</th>`;
+          return `<th class="col-name" data-col="${j}" title="${escapeHtml(c)}">${escapeHtml(c)}${tag}</th>`;
         })
         .join("");
 
@@ -193,6 +202,22 @@
     renderPager(data);
     pagePrev.disabled = data.page <= 1;
     pageNext.disabled = data.page >= data.total_pages;
+  }
+
+  // 0 -> A, 25 -> Z, 26 -> AA. Dipakai sebagai cadangan kalau sheet belum punya huruf asli
+  // (file yang diunggah sebelum fitur ini) -> huruf berdasarkan urutan kolom yang tampil.
+  function idxToLetters(idx) {
+    let n = idx + 1, out = "";
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      out = String.fromCharCode(65 + rem) + out;
+      n = Math.floor((n - 1) / 26);
+    }
+    return out;
+  }
+
+  function colLetter(d, name, j) {
+    return (d.column_letters && d.column_letters[name]) || idxToLetters(j);
   }
 
   function renderPager(d) {
@@ -247,13 +272,15 @@
     if (hit) setPanelTab("formula");
   }
 
-  tableHead.addEventListener("click", (e) => {
+  const onHeaderClick = (e) => {
     const th = e.target.closest("th[data-col]");
     if (!th || !state.currentPreview) return;
     const c = Number(th.dataset.col);
     const keys = state.currentPreview.rows.map((_, r) => `${r},${c}`);
     applySelection(keys, e, { anchor: { r: 0, c }, single: false });
-  });
+  };
+  tableLetters.addEventListener("click", onHeaderClick);
+  tableHead.addEventListener("click", onHeaderClick);
 
   tableBody.addEventListener("click", (e) => {
     if (!state.currentPreview) return;
@@ -294,11 +321,13 @@
       const r = td.dataset.row;
       td.classList.toggle("gutter-active", d.columns.some((_, c) => sel.has(`${r},${c}`)));
     });
-    tableHead.querySelectorAll("th[data-col]").forEach((th) => {
-      const c = th.dataset.col;
-      let all = rowsN > 0;
-      for (let r = 0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
-      th.classList.toggle("gutter-active", all);
+    [tableLetters, tableHead].forEach((row) => {
+      row.querySelectorAll("th[data-col]").forEach((th) => {
+        const c = th.dataset.col;
+        let all = rowsN > 0;
+        for (let r = 0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
+        th.classList.toggle("gutter-active", all);
+      });
     });
 
     // penanda jumlah sel terpilih di tab Rumus
@@ -425,6 +454,7 @@
 
       return (
         `<div class="fp-cell"><div class="fp-cell-head">` +
+        `<span class="fp-letter">${colLetter(d, col, c)}</span>` +
         `<span class="fp-col">${escapeHtml(col)}</span>` +
         `<span class="fp-row">#${offset + r + 1}</span>${badge}</div>${body}</div>`
       );
