@@ -129,9 +129,10 @@ def download_working_copy(file_id):
 @app.route("/api/files/<file_id>/chat", methods=["POST"])
 def chat(file_id):
     message = request.json.get("message", "")
+    lang = request.json.get("lang", "id")  # bahasa antarmuka aktif (id/en)
     session_id = session["session_id"]
     try:
-        reply = chat_engine.ask(session_id, file_id, message)
+        reply = chat_engine.ask(session_id, file_id, message, lang)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify(reply)
