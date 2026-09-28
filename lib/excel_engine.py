@@ -121,6 +121,15 @@ _REF_RE = re.compile(
 MAX_DEPS_PER_FORMULA = 12
 
 
+def _idx_to_letters(idx):
+    """0 -> A, 25 -> Z, 26 -> AA (kebalikan _letters_to_idx)."""
+    n, out = idx + 1, ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
 def _letters_to_idx(letters):
     n = 0
     for ch in letters:
@@ -298,7 +307,11 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
         formula_columns, formula_cells = _detect_formulas(
             raw_bytes, filename, sheet_name, columns, col_origin, row_origin
         )
-        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells)
+        # Huruf kolom di sheet ASLI (bukan urutan setelah dibersihkan) supaya header tabel
+        # (A, B, C...) cocok dengan referensi di rumus seperti =B4*C4.
+        column_letters = {c: _idx_to_letters(col_origin[c]) for c in columns if c in col_origin}
+        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells,
+                      column_letters)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -331,7 +344,9 @@ def preview_sheet(file_id, sheet_name, page=1):
     start = (page - 1) * PAGE_SIZE
     chunk = records[start:start + PAGE_SIZE]
 
-    formula_columns, formula_cells_all, row_order_dirty = db.get_formula_info(file_id, sheet_name)
+    formula_columns, formula_cells_all, row_order_dirty, column_letters = db.get_formula_info(
+        file_id, sheet_name
+    )
 
     # Peta per-sel hanya valid kalau urutan baris belum berubah sejak ingest.
     # Kirim hanya potongan untuk halaman ini, dgn key relatif halaman (0..len(chunk)-1).
@@ -352,6 +367,7 @@ def preview_sheet(file_id, sheet_name, page=1):
         "formula_columns": formula_columns,
         "formula_cells": formula_cells_page,
         "row_order_dirty": row_order_dirty,
+        "column_letters": column_letters,
     }
 
 
@@ -437,20 +453,25 @@ def apply_operation(file_id, op):
     if action in ("rename_column", "drop_column"):
         formula_columns = db.get_formula_columns(file_id, sheet_name)
         formula_cells = db.get_formula_cells(file_id, sheet_name)
+        column_letters = db.get_column_letters(file_id, sheet_name)
         if action == "rename_column":
             old, new = op["from"], op["to"]
             if old in formula_columns:
                 formula_columns[new] = formula_columns.pop(old)
+            if old in column_letters:
+                column_letters[new] = column_letters.pop(old)
             for row_map in formula_cells.values():
                 if old in row_map:
                     row_map[new] = row_map.pop(old)
         else:
             for c in op.get("columns", []):
                 formula_columns.pop(c, None)
+                column_letters.pop(c, None)
                 for row_map in formula_cells.values():
                     row_map.pop(c, None)
         db.update_formula_columns(file_id, sheet_name, formula_columns)
         db.update_formula_cells(file_id, sheet_name, formula_cells)
+        db.update_column_letters(file_id, sheet_name, column_letters)
 
     return {
         "columns": new_columns,
