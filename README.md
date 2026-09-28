@@ -66,6 +66,17 @@ meja-data/
 - Kolom berumus diberi penanda kecil "ƒx" di header tabel, dan profil data untuk chat ikut
   menyebut kolom mana yang berisi rumus.
 
+### Header tabel gaya spreadsheet
+- Header tabel selalu dua baris: baris atas berisi huruf kolom A, B, C, ... (dan AA, AB, ...
+  setelah Z), baris bawahnya berisi nama kolom hasil deteksi. Keduanya menempel di atas
+  saat tabel di-scroll, dan klik salah satunya memilih satu kolom penuh.
+- Huruf yang tampil adalah huruf kolom di sheet ASLI (disimpan di kolom column_letters),
+  bukan urutan setelah dibersihkan. Jadi kalau data dimulai dari kolom B, header dimulai dari
+  B, dan rumus seperti =C4*D4 langsung cocok dengan huruf di header. Menghapus kolom tidak
+  menggeser huruf kolom lain.
+- File yang diunggah sebelum fitur ini tidak punya huruf asli tersimpan; header memakai
+  cadangan A, B, C berdasarkan urutan kolom yang tampil.
+
 ### Tab "Rumus" (gaya Excel)
 - Klik sel di tabel untuk memilih; Shift+klik untuk rentang; Ctrl/Cmd+klik untuk beberapa
   sel; klik judul kolom atau nomor baris untuk memilih satu kolom/baris penuh; Esc untuk
@@ -91,7 +102,7 @@ meja-data/
    memanggil db.init_db(), akses sekali dari browser, lalu hapus lagi endpointnya.
 
    Kolom yang ditambahkan belakangan (formula_columns, formula_cells, row_order_dirty,
-   files.source) dimigrasikan otomatis: db.get_conn() menjalankan ALTER TABLE ... ADD COLUMN
+   files.source, column_letters, original_meta) dimigrasikan otomatis: db.get_conn() menjalankan ALTER TABLE ... ADD COLUMN
    IF NOT EXISTS sekali per proses. Jadi setelah update kode, tidak perlu membuka
    /api/_init-db lagi. Kalau tabel belum ada sama sekali (database baru), init_db() tetap
    diperlukan sekali untuk membuatnya.
@@ -154,3 +165,6 @@ Buka http://localhost:5000
   ditandai "juga merujuk sheet lain".
 - File yang diunggah sebelum fitur rumus per sel ditambahkan tidak punya datanya; unggah
   ulang file tersebut untuk mengisi tab Rumus.
+- "Reset ke asli" mengembalikan data, daftar kolom, info rumus, dan huruf kolom dari snapshot
+  original_meta yang disimpan saat upload. File lama tanpa snapshot hanya dikembalikan
+  datanya (daftar kolom dibiarkan apa adanya).
