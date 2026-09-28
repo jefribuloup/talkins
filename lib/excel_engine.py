@@ -80,8 +80,10 @@ def _clean_dataframe(raw: pd.DataFrame):
     untuk mencocokkan balik ke openpyxl saat deteksi kolom rumus/formula."""
     raw = raw.dropna(how="all").dropna(axis=1, how="all")
     if raw.empty:
-        return raw, {}, []
+        return raw, {}, [], 1
     header_row = _detect_header_row(raw)
+    # raw.index masih posisi baris ASLI (0-based) di sheet -> +1 = nomor baris seperti di Excel
+    header_sheet_row = int(raw.index[header_row]) + 1
     header = raw.iloc[header_row]
     df = raw.iloc[header_row + 1:].copy()
     cols = []
@@ -105,7 +107,7 @@ def _clean_dataframe(raw: pd.DataFrame):
     # dengan posisi baris di sheet Excel aslinya (baris pertama sheet = index 0).
     row_origin = df.index.tolist()
     df = df.reset_index(drop=True)
-    return df, col_origin, row_origin
+    return df, col_origin, row_origin, header_sheet_row
 
 
 # ---------- Deteksi kolom rumus/formula bawaan ----------
@@ -299,7 +301,7 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
     sheet_names = []
     for sheet_name in xls.sheet_names:
         raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-        clean_df, col_origin, row_origin = _clean_dataframe(raw_df)
+        clean_df, col_origin, row_origin, header_sheet_row = _clean_dataframe(raw_df)
         if clean_df.empty:
             continue
         columns = list(clean_df.columns.astype(str))
@@ -311,7 +313,7 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
         # (A, B, C...) cocok dengan referensi di rumus seperti =B4*C4.
         column_letters = {c: _idx_to_letters(col_origin[c]) for c in columns if c in col_origin}
         db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells,
-                      column_letters)
+                      column_letters, header_row=header_sheet_row)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -347,6 +349,7 @@ def preview_sheet(file_id, sheet_name, page=1):
     formula_columns, formula_cells_all, row_order_dirty, column_letters = db.get_formula_info(
         file_id, sheet_name
     )
+    header_row = db.get_header_row(file_id, sheet_name)
 
     # Peta per-sel hanya valid kalau urutan baris belum berubah sejak ingest.
     # Kirim hanya potongan untuk halaman ini, dgn key relatif halaman (0..len(chunk)-1).
@@ -368,6 +371,8 @@ def preview_sheet(file_id, sheet_name, page=1):
         "formula_cells": formula_cells_page,
         "row_order_dirty": row_order_dirty,
         "column_letters": column_letters,
+        # nomor baris header di sheet asli (1-based); baris data pertama = header_row + 1
+        "header_row": header_row,
     }
 
 
