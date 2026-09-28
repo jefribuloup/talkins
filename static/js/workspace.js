@@ -188,7 +188,7 @@
     tableBody.innerHTML = data.rows
       .map(
         (row, r) =>
-          `<tr><td class="row-gutter" data-row="${r}">${offset + r + 1}</td>` +
+          `<tr><td class="row-gutter" data-row="${r}">${rowNumber(data, offset + r)}</td>` +
           row
             .map((v, j) => `<td data-row="${r}" data-col="${j}">${v === null ? "" : escapeHtml(String(v))}</td>`)
             .join("") +
@@ -202,6 +202,13 @@
     renderPager(data);
     pagePrev.disabled = data.page <= 1;
     pageNext.disabled = data.page >= data.total_pages;
+  }
+
+  // Nomor baris seperti di Excel/Spreadsheet: header = baris pertama (atau baris header asli
+  // kalau ada judul di atasnya), jadi data pertama = header_row + 1 (umumnya 2).
+  // pos = posisi 0-based baris data di tabel (lintas halaman).
+  function rowNumber(d, pos) {
+    return pos + 1 + (d && d.header_row ? d.header_row : 1);
   }
 
   // 0 -> A, 25 -> Z, 26 -> AA. Dipakai sebagai cadangan kalau sheet belum punya huruf asli
@@ -373,8 +380,8 @@
         const rowsLabel = !dep.rows
           ? t("workspace.formula.depsOutside")
           : dep.rows[0] === dep.rows[1]
-          ? format(t("workspace.formula.depsRow"), { r: dep.rows[0] })
-          : format(t("workspace.formula.depsRows"), { a: dep.rows[0], b: dep.rows[1] });
+          ? format(t("workspace.formula.depsRow"), { r: rowNumber(d, dep.rows[0] - 1) })
+          : format(t("workspace.formula.depsRows"), { a: rowNumber(d, dep.rows[0] - 1), b: rowNumber(d, dep.rows[1] - 1) });
         const name = dep.cols.length ? dep.cols.map(escapeHtml).join(", ") : "?";
         const keys = precedentKeys(dep, d);
         const attr = keys.length ? ` data-keys="${keys.join(";")}"` : " disabled";
@@ -456,7 +463,7 @@
         `<div class="fp-cell"><div class="fp-cell-head">` +
         `<span class="fp-letter">${colLetter(d, col, c)}</span>` +
         `<span class="fp-col">${escapeHtml(col)}</span>` +
-        `<span class="fp-row">#${offset + r + 1}</span>${badge}</div>${body}</div>`
+        `<span class="fp-row">#${rowNumber(d, offset + r)}</span>${badge}</div>${body}</div>`
       );
     });
 
