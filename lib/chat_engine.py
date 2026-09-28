@@ -261,7 +261,21 @@ def _call_llm(system_prompt, history, user_message):
 
 # ---------- API dipakai route Flask ----------
 
-def ask(session_id, file_id, message):
+_LANG_NAMES = {"id": "Indonesia", "en": "English"}
+
+
+def _language_hint(lang):
+    """Petunjuk bahasa jawaban: ikut bahasa yang dipakai user di pesannya; kalau pesannya
+    ambigu/campuran/sangat singkat, ikut bahasa antarmuka yang sedang aktif di aplikasi."""
+    name = _LANG_NAMES.get(lang, _LANG_NAMES["id"])
+    return (
+        "\n\nBahasa jawaban: gunakan bahasa yang dipakai user di pesan terakhirnya. "
+        f"Kalau pesannya ambigu, campuran, atau sangat singkat, jawab dalam bahasa {name} "
+        "(bahasa antarmuka aplikasi yang sedang aktif)."
+    )
+
+
+def ask(session_id, file_id, message, lang="id"):
     message = (message or "")[:MAX_USER_MESSAGE_CHARS]
     history = _trim_history(db.get_chat_history(session_id, file_id, limit=20))
 
@@ -269,7 +283,7 @@ def ask(session_id, file_id, message):
     relevant_sheets = _select_relevant_sheets(file_id, message, history, sheet_names)
     profile = _build_data_profile(file_id, relevant_sheets, sheet_names)
 
-    full_system = SYSTEM_PROMPT + "\n\nProfil data saat ini:\n" + profile
+    full_system = SYSTEM_PROMPT + _language_hint(lang) + "\n\nProfil data saat ini:\n" + profile
     answer, provider_used = _call_llm(full_system, history, message)
 
     db.save_chat_message(session_id, file_id, "user", message)
