@@ -17,10 +17,40 @@ DATABASE_URL = (
 )
 
 
+# Migrasi kolom ringan yang dijalankan otomatis sekali per proses (idempoten).
+# Tujuannya: setiap kali kolom baru ditambah di kode, database Neon menyusul sendiri
+# tanpa harus membuka /api/_init-db manual. Kalau tabel belum ada (DB baru), dilewati
+# diam-diam dan init_db() yang membuatnya.
+_SCHEMA_MIGRATIONS = (
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_cells JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS row_order_dirty BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload'",
+)
+_schema_ready = False
+
+
+def _ensure_schema(conn):
+    global _schema_ready
+    try:
+        cur = conn.cursor()
+        cur.execute("SET LOCAL lock_timeout = '3s'")
+        for stmt in _SCHEMA_MIGRATIONS:
+            cur.execute(stmt)
+        conn.commit()
+        cur.close()
+        _schema_ready = True
+    except Exception:
+        # tabel belum ada / lock timeout -> coba lagi di koneksi berikutnya
+        conn.rollback()
+
+
 def get_conn():
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL / POSTGRES_URL belum di-set di environment variable")
     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    if not _schema_ready:
+        _ensure_schema(conn)
     return conn
 
 
