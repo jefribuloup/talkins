@@ -6,7 +6,11 @@
   const tableHead = document.getElementById("tableHead");
   const tableBody = document.getElementById("tableBody");
   const tableWrap = document.getElementById("tableWrap");
-  const formulaSummary = document.getElementById("formulaSummary");
+  const panelTabs = document.getElementById("panelTabs");
+  const tabViewChat = document.getElementById("tabViewChat");
+  const tabViewFormula = document.getElementById("tabViewFormula");
+  const formulaPanelEmpty = document.getElementById("formulaPanelEmpty");
+  const formulaPanelContent = document.getElementById("formulaPanelContent");
   const pagerInfo = document.getElementById("pagerInfo");
   const pagePrev = document.getElementById("pagePrev");
   const pageNext = document.getElementById("pageNext");
@@ -95,7 +99,15 @@
     return html.join("") || "<p></p>";
   }
 
-  const state = { sheet: null, page: 1, totalPages: 1, formulaHighlight: true };
+  const state = {
+    sheet: null,
+    page: 1,
+    totalPages: 1,
+    currentPreview: null,      // respons /preview terakhir (dipakai tab Rumus)
+    selectedCells: new Set(),  // key "r,c" (r = baris di halaman ini, c = index kolom)
+    selectionAnchor: null,     // {r, c} untuk Shift+klik rentang
+    precedents: new Set(),     // sel "bahan rumus" yang lagi ditandai
+  };
 
   // ---------- Sheet tabs ----------
 
@@ -122,82 +134,323 @@
 
   // ---------- Tabel + pager ----------
 
-  function renderFormulaSummary(formulaCols) {
-    const names = Object.keys(formulaCols);
-    if (!names.length) {
-      formulaSummary.hidden = true;
-      formulaSummary.innerHTML = "";
-      return;
-    }
-    formulaSummary.hidden = false;
-    formulaSummary.innerHTML = `
-      <span class="formula-summary-icon">ƒx</span>
-      <span class="formula-summary-text">
-        <strong>${names.length}</strong> kolom mengandung rumus Excel bawaan:
-        <span class="formula-summary-names">${names.map(escapeHtml).join(", ")}</span>
-      </span>
-      <button type="button" class="formula-toggle-btn" id="formulaToggleBtn"
-        aria-pressed="${state.formulaHighlight}">
-        ${state.formulaHighlight ? "Sembunyikan sorotan" : "Sorot di tabel"}
-      </button>
-    `;
-    document.getElementById("formulaToggleBtn").addEventListener("click", () => {
-      state.formulaHighlight = !state.formulaHighlight;
-      tableWrap.classList.toggle("formula-highlight-off", !state.formulaHighlight);
-      renderFormulaSummary(formulaCols); // refresh label tombolnya
+  // ---------- Tab kanan: Chat | Rumus ----------
+
+  function setPanelTab(name) {
+    panelTabs.querySelectorAll(".panel-tab").forEach((el) => {
+      el.classList.toggle("active", el.dataset.tab === name);
     });
+    tabViewChat.hidden = name !== "chat";
+    tabViewFormula.hidden = name !== "formula";
+    if (name === "chat") chatLog.scrollTop = chatLog.scrollHeight;
   }
+
+  panelTabs.addEventListener("click", (e) => {
+    const btn = e.target.closest(".panel-tab");
+    if (btn) setPanelTab(btn.dataset.tab);
+  });
+
+  // ---------- Tabel + pemilihan sel (gaya Excel) ----------
 
   async function loadPreview() {
     const res = await fetch(api(`/preview?sheet=${encodeURIComponent(state.sheet)}&page=${state.page}`));
     const data = await res.json();
     state.totalPages = data.total_pages;
+    state.currentPreview = data;
+    state.selectedCells.clear();
+    state.precedents.clear();
+    state.selectionAnchor = null;
 
     const formulaCols = data.formula_columns || {};
-    const formulaColIdx = new Set(
-      data.columns.map((c, i) => (formulaCols[c] ? i : -1)).filter((i) => i >= 0)
-    );
+    const offset = (data.page - 1) * data.page_size;
 
-    tableHead.innerHTML = data.columns
-      .map((c) => {
-        const info = formulaCols[c];
-        if (!info) return `<th>${c}</th>`;
-        const pct = Math.round((info.ratio || 0) * 100);
-        const sample = escapeHtml(info.sample || "");
-        return `
-          <th>
-            ${c}
-            <span class="col-formula-badge" tabindex="0">
-              ƒx
-              <span class="formula-tooltip">
-                <span class="formula-tooltip-title">Kolom rumus Excel</span>
-                <code class="formula-tooltip-code">${sample}</code>
-                <span class="formula-tooltip-ratio-track">
-                  <span class="formula-tooltip-ratio-fill" style="width:${pct}%"></span>
-                </span>
-                <span class="formula-tooltip-meta">${info.count} dari ${info.checked} sel terisi (${pct}%) berupa rumus</span>
-              </span>
-            </span>
-          </th>`;
-      })
-      .join("");
+    // Header: pojok kosong (gutter nomor baris) + judul kolom.
+    // Klik judul kolom = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
+    tableHead.innerHTML =
+      `<th class="row-gutter"></th>` +
+      data.columns
+        .map((c, j) => {
+          const tag = formulaCols[c] ? `<span class="col-formula-tag">ƒx</span>` : "";
+          return `<th data-col="${j}">${escapeHtml(c)}${tag}</th>`;
+        })
+        .join("");
 
+    // Body: nomor baris (klik = pilih baris penuh) + sel data.
     tableBody.innerHTML = data.rows
       .map(
-        (row) =>
-          `<tr>${row
-            .map((v, i) => `<td${formulaColIdx.has(i) ? ' class="td-formula"' : ""}>${v === null ? "" : v}</td>`)
-            .join("")}</tr>`
+        (row, r) =>
+          `<tr><td class="row-gutter" data-row="${r}">${offset + r + 1}</td>` +
+          row
+            .map((v, j) => `<td data-row="${r}" data-col="${j}">${v === null ? "" : escapeHtml(String(v))}</td>`)
+            .join("") +
+          `</tr>`
       )
       .join("");
 
-    tableWrap.classList.toggle("formula-highlight-off", !state.formulaHighlight);
-    renderFormulaSummary(formulaCols);
+    renderSelectionHighlight();
+    renderFormulaPanel();
 
     pagerInfo.textContent = `Hal ${data.page} / ${data.total_pages} · ${data.total_rows} baris`;
     pagePrev.disabled = data.page <= 1;
     pageNext.disabled = data.page >= data.total_pages;
   }
+
+  function applySelection(cellKeys, e, { anchor, single }) {
+    if (e.shiftKey && single && state.selectionAnchor) {
+      // Shift+klik: seluruh persegi panjang dari anchor ke sel yang diklik
+      const a = state.selectionAnchor;
+      state.selectedCells.clear();
+      for (let r = Math.min(a.r, anchor.r); r <= Math.max(a.r, anchor.r); r++) {
+        for (let c = Math.min(a.c, anchor.c); c <= Math.max(a.c, anchor.c); c++) {
+          state.selectedCells.add(`${r},${c}`);
+        }
+      }
+    } else if (e.ctrlKey || e.metaKey) {
+      // Ctrl/Cmd+klik: tambah/lepas dari pilihan yang ada
+      const allIn = cellKeys.every((k) => state.selectedCells.has(k));
+      cellKeys.forEach((k) => (allIn ? state.selectedCells.delete(k) : state.selectedCells.add(k)));
+      state.selectionAnchor = anchor;
+    } else {
+      state.selectedCells.clear();
+      cellKeys.forEach((k) => state.selectedCells.add(k));
+      state.selectionAnchor = anchor;
+    }
+    state.precedents.clear();
+    renderSelectionHighlight();
+    renderFormulaPanel();
+    maybeRevealFormulaTab();
+  }
+
+  function clearSelection() {
+    state.selectedCells.clear();
+    state.precedents.clear();
+    state.selectionAnchor = null;
+    renderSelectionHighlight();
+    renderFormulaPanel();
+  }
+
+  // Auto-pindah ke tab Rumus hanya kalau ada sel terpilih yang berada di kolom berumus,
+  // supaya user yang sedang asyik di tab Chat tidak "ditarik" tiap klik sel biasa.
+  function maybeRevealFormulaTab() {
+    const d = state.currentPreview;
+    if (!d || !state.selectedCells.size) return;
+    const fcols = d.formula_columns || {};
+    const hit = [...state.selectedCells].some((k) => fcols[d.columns[Number(k.split(",")[1])]]);
+    if (hit) setPanelTab("formula");
+  }
+
+  tableHead.addEventListener("click", (e) => {
+    const th = e.target.closest("th[data-col]");
+    if (!th || !state.currentPreview) return;
+    const c = Number(th.dataset.col);
+    const keys = state.currentPreview.rows.map((_, r) => `${r},${c}`);
+    applySelection(keys, e, { anchor: { r: 0, c }, single: false });
+  });
+
+  tableBody.addEventListener("click", (e) => {
+    if (!state.currentPreview) return;
+    const gutter = e.target.closest("td.row-gutter");
+    if (gutter) {
+      const r = Number(gutter.dataset.row);
+      const keys = state.currentPreview.columns.map((_, c) => `${r},${c}`);
+      applySelection(keys, e, { anchor: { r, c: 0 }, single: false });
+      return;
+    }
+    const cell = e.target.closest("td[data-col]");
+    if (!cell) return;
+    const r = Number(cell.dataset.row);
+    const c = Number(cell.dataset.col);
+    applySelection([`${r},${c}`], e, { anchor: { r, c }, single: true });
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const tag = (document.activeElement && document.activeElement.tagName) || "";
+    if (e.key === "Escape" && !/INPUT|TEXTAREA|SELECT/.test(tag) && state.selectedCells.size) clearSelection();
+  });
+
+  function renderSelectionHighlight() {
+    const d = state.currentPreview;
+    if (!d) return;
+    const sel = state.selectedCells;
+    const rowsN = d.rows.length;
+
+    tableBody.querySelectorAll("td[data-col]").forEach((td) => {
+      const key = `${td.dataset.row},${td.dataset.col}`;
+      td.classList.toggle("cell-selected", sel.has(key));
+      td.classList.toggle("cell-precedent", state.precedents.has(key));
+    });
+    tableBody.querySelectorAll("td.row-gutter").forEach((td) => {
+      const r = td.dataset.row;
+      td.classList.toggle("gutter-active", d.columns.some((_, c) => sel.has(`${r},${c}`)));
+    });
+    tableHead.querySelectorAll("th[data-col]").forEach((th) => {
+      const c = th.dataset.col;
+      let all = rowsN > 0;
+      for (let r = 0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
+      th.classList.toggle("gutter-active", all);
+    });
+
+    // penanda jumlah sel terpilih di tab Rumus
+    const formulaTab = panelTabs.querySelector('[data-tab="formula"]');
+    let badge = formulaTab.querySelector(".panel-tab-count");
+    if (sel.size) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "panel-tab-count";
+        formulaTab.appendChild(badge);
+      }
+      badge.textContent = sel.size;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  // ---------- Isi tab Rumus ----------
+
+  function fmtVal(v) {
+    return v === null || v === undefined || v === "" ? "–" : escapeHtml(String(v));
+  }
+
+  function precedentKeys(dep, d) {
+    const offset = (d.page - 1) * d.page_size;
+    if (!dep.rows || !dep.cols.length) return [];
+    const keys = [];
+    for (let row = dep.rows[0]; row <= dep.rows[1]; row++) {
+      const r = row - 1 - offset;
+      if (r < 0 || r >= d.rows.length) continue;
+      dep.cols.forEach((name) => {
+        const c = d.columns.indexOf(name);
+        if (c >= 0) keys.push(`${r},${c}`);
+      });
+    }
+    return keys;
+  }
+
+  function renderDeps(entry, d) {
+    if (!entry.deps || !entry.deps.length) return "";
+    const chips = entry.deps
+      .map((dep) => {
+        const rowsLabel = !dep.rows
+          ? t("workspace.formula.depsOutside")
+          : dep.rows[0] === dep.rows[1]
+          ? format(t("workspace.formula.depsRow"), { r: dep.rows[0] })
+          : format(t("workspace.formula.depsRows"), { a: dep.rows[0], b: dep.rows[1] });
+        const name = dep.cols.length ? dep.cols.map(escapeHtml).join(", ") : "?";
+        const keys = precedentKeys(dep, d);
+        const attr = keys.length ? ` data-keys="${keys.join(";")}"` : " disabled";
+        return (
+          `<button type="button" class="fp-dep"${attr}>` +
+          `<span class="fp-dep-ref">${escapeHtml(dep.ref)}</span>` +
+          `<span class="fp-dep-name">${name}</span>` +
+          `<span class="fp-dep-rows">${rowsLabel}</span></button>`
+        );
+      })
+      .join("");
+    return (
+      `<div class="fp-deps-title">${t("workspace.formula.deps")}</div><div class="fp-deps">${chips}</div>` +
+      (entry.x ? `<div class="fp-note">${t("workspace.formula.otherSheet")}</div>` : "")
+    );
+  }
+
+  function renderFormulaPanel() {
+    const d = state.currentPreview;
+    if (!d || !state.selectedCells.size) {
+      formulaPanelEmpty.hidden = false;
+      formulaPanelContent.hidden = true;
+      formulaPanelContent.innerHTML = "";
+      return;
+    }
+    formulaPanelEmpty.hidden = true;
+    formulaPanelContent.hidden = false;
+
+    const cells = [...state.selectedCells]
+      .map((k) => k.split(",").map(Number))
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+
+    const fCells = d.formula_cells || {};
+    const fCols = d.formula_columns || {};
+    const dirty = !!d.row_order_dirty;
+    const offset = (d.page - 1) * d.page_size;
+    const cellEntry = (r, col) => {
+      const raw = fCells[String(r)] && fCells[String(r)][col];
+      return raw ? (typeof raw === "string" ? { f: raw, deps: [], x: false } : raw) : null;
+    };
+
+    let formulaCount = 0;
+    cells.forEach(([r, c]) => { if (cellEntry(r, d.columns[c])) formulaCount++; });
+
+    const MAX_SHOWN = 120;
+    const cards = cells.slice(0, MAX_SHOWN).map(([r, c]) => {
+      const col = d.columns[c];
+      const val = d.rows[r][c];
+      const entry = cellEntry(r, col);
+      const info = fCols[col];
+      let badge, body;
+
+      if (entry) {
+        badge = `<span class="fp-badge fp-badge-formula">${t("workspace.formula.badgeFormula")}</span>`;
+        body =
+          `<code class="fp-formula">${escapeHtml(entry.f)}</code>` +
+          `<div class="fp-value">${t("workspace.formula.result")}: <strong>${fmtVal(val)}</strong></div>` +
+          renderDeps(entry, d);
+      } else if (dirty && info) {
+        badge = `<span class="fp-badge fp-badge-unknown">${t("workspace.formula.badgeUnknown")}</span>`;
+        body =
+          `<div class="fp-note">${format(t("workspace.formula.dirtyNote"), {
+            col: `<strong>${escapeHtml(col)}</strong>`,
+            pct: Math.round((info.ratio || 0) * 100),
+            sample: `<code>${escapeHtml(info.sample || "")}</code>`,
+          })}</div>` +
+          `<div class="fp-value">${t("workspace.formula.value")}: <strong>${fmtVal(val)}</strong></div>`;
+      } else if (info) {
+        badge = `<span class="fp-badge fp-badge-static">${t("workspace.formula.badgeStatic")}</span>`;
+        body =
+          `<div class="fp-note">${format(t("workspace.formula.staticNote"), { col: `<strong>${escapeHtml(col)}</strong>` })}</div>` +
+          `<div class="fp-value">${t("workspace.formula.value")}: <strong>${fmtVal(val)}</strong></div>`;
+      } else {
+        badge = `<span class="fp-badge fp-badge-plain">${t("workspace.formula.badgePlain")}</span>`;
+        body = `<div class="fp-value">${t("workspace.formula.value")}: <strong>${fmtVal(val)}</strong></div>`;
+      }
+
+      return (
+        `<div class="fp-cell"><div class="fp-cell-head">` +
+        `<span class="fp-col">${escapeHtml(col)}</span>` +
+        `<span class="fp-row">#${offset + r + 1}</span>${badge}</div>${body}</div>`
+      );
+    });
+
+    const noFormulaNote =
+      !Object.keys(fCols).length && !dirty
+        ? `<div class="fp-note fp-note-top">${t("workspace.formula.noneInSheet")}</div>`
+        : "";
+    const more =
+      cells.length > MAX_SHOWN
+        ? `<p class="fp-more">${format(t("workspace.formula.more"), { n: cells.length - MAX_SHOWN })}</p>`
+        : "";
+
+    formulaPanelContent.innerHTML =
+      `<div class="fp-summary"><span>${format(t("workspace.formula.selected"), { n: cells.length, f: formulaCount })}</span>` +
+      (dirty ? `<span class="fp-dirty-flag">${t("workspace.formula.dirtyFlag")}</span>` : "") +
+      `</div>${noFormulaNote}${cards.join("")}${more}`;
+  }
+
+  // Klik chip "bahan rumus" -> tandai sel sumbernya di tabel (tanpa mengubah pilihan)
+  formulaPanelContent.addEventListener("click", (e) => {
+    const chip = e.target.closest(".fp-dep[data-keys]");
+    if (!chip) return;
+    const keys = chip.dataset.keys.split(";");
+    const same = keys.length === state.precedents.size && keys.every((k) => state.precedents.has(k));
+    state.precedents.clear();
+    if (!same) keys.forEach((k) => state.precedents.add(k));
+    formulaPanelContent.querySelectorAll(".fp-dep").forEach((el) => {
+      el.classList.toggle("active", !same && el === chip);
+    });
+    renderSelectionHighlight();
+    if (!same) {
+      const first = tableBody.querySelector("td.cell-precedent");
+      if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+    }
+  });
 
   pagePrev.addEventListener("click", () => { state.page--; loadPreview(); });
   pageNext.addEventListener("click", () => { state.page++; loadPreview(); });
