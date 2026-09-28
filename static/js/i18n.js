@@ -28,6 +28,7 @@
       "dashboard.filelist.open": "Buka",
       "dashboard.filelist.delete": "Hapus",
       "dashboard.status.processing": "Memproses {name} ...",
+      "common.loading": "Memuat data...",
       "dashboard.status.success": "Berhasil: {count} sheet terbaca. Membuka ruang kerja...",
       "dashboard.filelist.meta": "{count} sheet · diunggah {date}",
 
@@ -112,6 +113,7 @@
       "dashboard.filelist.open": "Open",
       "dashboard.filelist.delete": "Delete",
       "dashboard.status.processing": "Processing {name} ...",
+      "common.loading": "Loading data...",
       "dashboard.status.success": "Success: {count} sheet(s) read. Opening workspace...",
       "dashboard.filelist.meta": "{count} sheet(s) · uploaded {date}",
 
