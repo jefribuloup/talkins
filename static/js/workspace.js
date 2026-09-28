@@ -182,9 +182,9 @@
     // Kolom yg namanya dibuat otomatis (kolom_N) berarti selnya kosong di sheet asli.
     const headerRowHtml =
       data.page === 1
-        ? `<tr class="header-as-row"><td class="row-gutter">${data.header_row || 1}</td>` +
+        ? `<tr class="header-as-row"><td class="row-gutter" data-row="-1">${rowNumber(data, -1)}</td>` +
           data.columns
-            .map((c) => `<td>${/^kolom_\d+$/.test(c) ? "" : escapeHtml(c)}</td>`)
+            .map((c, j) => `<td data-row="-1" data-col="${j}">${escapeHtml(headerCellValue(data, j))}</td>`)
             .join("") +
           `</tr>`
         : "";
@@ -214,6 +214,20 @@
   // pos = posisi 0-based baris data di tabel (lintas halaman).
   function rowNumber(d, pos) {
     return pos + 1 + (d && d.header_row ? d.header_row : 1);
+  }
+
+  // Baris header asli diperlakukan sbg baris ke-1 tabel dengan indeks r = -1 (hanya di halaman 1),
+  // jadi ikut sistem seleksi yang sama dgn sel data: klik, Shift+klik, Ctrl+klik, pilih baris/kolom.
+  function firstRow(d) {
+    return d && d.page === 1 ? -1 : 0;
+  }
+  // Nama kolom hasil deteksi = isi sel baris header. Nama otomatis (kolom_N) berarti sel kosong.
+  function headerCellValue(d, c) {
+    const name = d.columns[c];
+    return /^kolom_\d+$/.test(name) ? "" : name;
+  }
+  function cellValue(d, r, c) {
+    return r < 0 ? headerCellValue(d, c) : d.rows[r][c];
   }
 
   // 0 -> A, 25 -> Z, 26 -> AA. Dipakai sebagai cadangan kalau sheet belum punya huruf asli
@@ -280,7 +294,10 @@
     const d = state.currentPreview;
     if (!d || !state.selectedCells.size) return;
     const fcols = d.formula_columns || {};
-    const hit = [...state.selectedCells].some((k) => fcols[d.columns[Number(k.split(",")[1])]]);
+    const hit = [...state.selectedCells].some((k) => {
+      const [r, c] = k.split(",").map(Number);
+      return r >= 0 && fcols[d.columns[c]];
+    });
     if (hit) setPanelTab("formula");
   }
 
@@ -288,8 +305,10 @@
     const th = e.target.closest("th[data-col]");
     if (!th || !state.currentPreview) return;
     const c = Number(th.dataset.col);
-    const keys = state.currentPreview.rows.map((_, r) => `${r},${c}`);
-    applySelection(keys, e, { anchor: { r: 0, c }, single: false });
+    const d = state.currentPreview;
+    const keys = [];
+    for (let r = firstRow(d); r < d.rows.length; r++) keys.push(`${r},${c}`);
+    applySelection(keys, e, { anchor: { r: firstRow(d), c }, single: false });
   };
   tableLetters.addEventListener("click", onHeaderClick);
 
@@ -323,6 +342,7 @@
     if (!d) return;
     const sel = state.selectedCells;
     const rowsN = d.rows.length;
+    const r0 = firstRow(d);
 
     tableBody.querySelectorAll("td[data-col]").forEach((td) => {
       const key = `${td.dataset.row},${td.dataset.col}`;
@@ -337,7 +357,7 @@
       row.querySelectorAll("th[data-col]").forEach((th) => {
         const c = th.dataset.col;
         let all = rowsN > 0;
-        for (let r = 0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
+        for (let r = r0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
         th.classList.toggle("gutter-active", all);
       });
     });
@@ -434,9 +454,10 @@
     const MAX_SHOWN = 120;
     const cards = cells.slice(0, MAX_SHOWN).map(([r, c]) => {
       const col = d.columns[c];
-      const val = d.rows[r][c];
-      const entry = cellEntry(r, col);
-      const info = fCols[col];
+      const isHeaderCell = r < 0;
+      const val = cellValue(d, r, c);
+      const entry = isHeaderCell ? null : cellEntry(r, col);
+      const info = isHeaderCell ? null : fCols[col];
       let badge, body;
 
       if (entry) {
