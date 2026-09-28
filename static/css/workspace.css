@@ -491,6 +491,41 @@
 
 .dropzone-compact { min-height: 160px; margin-bottom: 14px; }
 
+/* Popup unggah file: responsif mobile -> tablet -> desktop */
+.modal-box-upload {
+  width: 94vw;                 /* mobile: hampir selebar layar */
+  max-height: 90vh;
+  max-height: 90dvh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+@media (min-width: 600px) {    /* tablet */
+  .modal-box-upload { width: min(460px, 80vw); padding: 20px; }
+}
+@media (min-width: 1024px) {   /* laptop / desktop: sengaja tidak terlalu lebar */
+  .modal-box-upload { width: 440px; padding: 24px; }
+}
+
+.modal-box-upload .upload-tabs { width: 100%; }
+.modal-box-upload .upload-tab { flex: 1; text-align: center; padding: 8px 10px; }
+.modal-box-upload .dropzone-compact { min-height: 130px; }
+@media (min-width: 600px) {
+  .modal-box-upload .dropzone-compact { min-height: 150px; }
+}
+.modal-box-upload .file-row > div { min-width: 0; }
+.modal-box-upload .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .modal-box-upload .file-row { grid-template-columns: 1fr auto; row-gap: 6px; }
+  .modal-box-upload .file-row > div { grid-column: 1 / -1; }
+}
+.modal-box-upload #uploadModalClose { width: 100%; }
+
+
+
 .upload-tabs { display: flex; gap: 2px; margin-bottom: 14px; }
 .upload-tab {
   font-family: var(--font-mono);
