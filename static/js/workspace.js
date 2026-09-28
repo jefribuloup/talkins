@@ -190,9 +190,17 @@
     renderSelectionHighlight();
     renderFormulaPanel();
 
-    pagerInfo.textContent = `Hal ${data.page} / ${data.total_pages} · ${data.total_rows} baris`;
+    renderPager(data);
     pagePrev.disabled = data.page <= 1;
     pageNext.disabled = data.page >= data.total_pages;
+  }
+
+  function renderPager(d) {
+    pagerInfo.textContent = format(t("workspace.pager.info"), {
+      page: d.page,
+      total: d.total_pages,
+      rows: d.total_rows,
+    });
   }
 
   function applySelection(cellKeys, e, { anchor, single }) {
@@ -559,27 +567,44 @@
     if (!message) return;
     appendMessage("user", message);
     chatInput.value = "";
-    appendMessage("assistant", "Berpikir...");
+    appendMessage("assistant", t("workspace.chat.thinking"));
     const thinkingEl = chatLog.lastChild;
+    // selama menunggu, teks ini ikut diterjemahkan kalau user ganti bahasa
+    thinkingEl.setAttribute("data-i18n", "workspace.chat.thinking");
 
     try {
       const res = await fetch(api("/chat"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, lang: window.MejaDataI18n ? window.MejaDataI18n.getLang() : "id" }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal mendapat jawaban");
+      if (!res.ok) throw new Error(data.error || t("workspace.chat.errorAnswer"));
+      thinkingEl.removeAttribute("data-i18n"); // jawaban asli jangan tertimpa terjemahan statis
       thinkingEl.innerHTML = renderMarkdown(data.answer);
       if (data.sheets_used && data.sheets_used.length) {
         const m = document.createElement("div");
         m.className = "chat-msg-meta";
-        m.textContent = "Sheet dianalisis: " + data.sheets_used.join(", ");
+        m.dataset.sheets = data.sheets_used.join(", ");
+        renderSheetsMeta(m);
         chatLog.appendChild(m);
+        chatLog.scrollTop = chatLog.scrollHeight;
       }
     } catch (err) {
-      thinkingEl.textContent = "Gagal: " + err.message;
+      thinkingEl.removeAttribute("data-i18n");
+      thinkingEl.textContent = t("workspace.chat.errorPrefix") + ": " + err.message;
     }
+  });
+
+  function renderSheetsMeta(el) {
+    el.textContent = format(t("workspace.chat.sheetsUsed"), { sheets: el.dataset.sheets });
+  }
+
+  // Ganti bahasa: render ulang semua teks yang dibuat lewat JS (bukan data-i18n statis)
+  window.addEventListener("mejadata:langchange", () => {
+    chatLog.querySelectorAll(".chat-msg-meta[data-sheets]").forEach(renderSheetsMeta);
+    if (state.currentPreview) renderPager(state.currentPreview);
+    renderFormulaPanel();
   });
 
   // ---------- Modal slide ----------
