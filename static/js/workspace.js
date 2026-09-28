@@ -567,20 +567,28 @@
     if (!message) return;
     appendMessage("user", message);
     chatInput.value = "";
-    appendMessage("assistant", t("workspace.chat.thinking"));
+    appendMessage("assistant", "");
     const thinkingEl = chatLog.lastChild;
-    // selama menunggu, teks ini ikut diterjemahkan kalau user ganti bahasa
-    thinkingEl.setAttribute("data-i18n", "workspace.chat.thinking");
+    // preloader khusus chat: spinner kecil + teks "Berpikir..." di dalam bubble
+    // (teks ikut diterjemahkan kalau user ganti bahasa selama menunggu)
+    thinkingEl.classList.add("chat-thinking");
+    thinkingEl.innerHTML =
+      '<span class="chat-spin" aria-hidden="true"></span>' +
+      '<span data-i18n="workspace.chat.thinking">' + t("workspace.chat.thinking") + "</span>";
+    thinkingEl.setAttribute("role", "status");
+    chatLog.scrollTop = chatLog.scrollHeight;
 
     try {
       const res = await fetch(api("/chat"), {
         method: "POST",
+        noLoader: true, // chat punya preloader sendiri, jangan tampilkan preloader global
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, lang: window.MejaDataI18n ? window.MejaDataI18n.getLang() : "id" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || t("workspace.chat.errorAnswer"));
-      thinkingEl.removeAttribute("data-i18n"); // jawaban asli jangan tertimpa terjemahan statis
+      thinkingEl.classList.remove("chat-thinking");
+      thinkingEl.removeAttribute("role");
       thinkingEl.innerHTML = renderMarkdown(data.answer);
       if (data.sheets_used && data.sheets_used.length) {
         const m = document.createElement("div");
@@ -591,7 +599,8 @@
         chatLog.scrollTop = chatLog.scrollHeight;
       }
     } catch (err) {
-      thinkingEl.removeAttribute("data-i18n");
+      thinkingEl.classList.remove("chat-thinking");
+      thinkingEl.removeAttribute("role");
       thinkingEl.textContent = t("workspace.chat.errorPrefix") + ": " + err.message;
     }
   });
