@@ -431,6 +431,30 @@
   border: 1px solid var(--grid-line);
 }
 
+/* Preloader khusus chat: spinner kecil + teks di dalam bubble */
+.chat-msg.chat-thinking {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+}
+.chat-spin {
+  flex: none;
+  width: 1.1em;
+  height: 1.1em;
+  border-radius: 50%;
+  border: 2px solid var(--grid-line);
+  border-top-color: var(--accent);
+  animation: md-spin 0.8s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-msg.chat-thinking .chat-spin {
+    animation: md-pulse 1.6s ease-in-out infinite !important;
+    animation-duration: 1.6s !important;
+    border-color: var(--accent);
+  }
+}
+
 .chat-msg-meta {
   font-family: var(--font-mono);
   font-size: 11px;
