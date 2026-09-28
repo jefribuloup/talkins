@@ -45,11 +45,15 @@ def init_db():
             working_data JSONB NOT NULL,
             columns JSONB NOT NULL DEFAULT '[]',
             formula_columns JSONB NOT NULL DEFAULT '{}',
+            formula_cells JSONB NOT NULL DEFAULT '{}',
+            row_order_dirty BOOLEAN NOT NULL DEFAULT false,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (file_id, sheet_name)
         );
 
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}';
+        ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_cells JSONB NOT NULL DEFAULT '{}';
+        ALTER TABLE sheets ADD COLUMN IF NOT EXISTS row_order_dirty BOOLEAN NOT NULL DEFAULT false;
         ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload';
 
         CREATE TABLE IF NOT EXISTS chat_messages (
@@ -131,23 +135,27 @@ def delete_file(session_id, file_id):
 
 # ---------- Sheets (original vs working copy) ----------
 
-def save_sheet(file_id, sheet_name, records, columns, formula_columns=None):
+def save_sheet(file_id, sheet_name, records, columns, formula_columns=None, formula_cells=None):
     """Dipanggil sekali saat upload: original == working di awal."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT INTO sheets (file_id, sheet_name, original_data, working_data, columns, formula_columns)
-        VALUES (%s,%s,%s,%s,%s,%s)
+        INSERT INTO sheets (file_id, sheet_name, original_data, working_data, columns,
+                            formula_columns, formula_cells, row_order_dirty)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,false)
         ON CONFLICT (file_id, sheet_name) DO UPDATE
         SET original_data=EXCLUDED.original_data,
             working_data=EXCLUDED.working_data,
             columns=EXCLUDED.columns,
-            formula_columns=EXCLUDED.formula_columns
+            formula_columns=EXCLUDED.formula_columns,
+            formula_cells=EXCLUDED.formula_cells,
+            row_order_dirty=false
         """,
         (
             file_id, sheet_name, json.dumps(records), json.dumps(records),
             json.dumps(columns), json.dumps(formula_columns or {}),
+            json.dumps(formula_cells or {}),
         ),
     )
     conn.commit()
@@ -180,6 +188,63 @@ def update_formula_columns(file_id, sheet_name, formula_columns):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def get_formula_cells(file_id, sheet_name):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT formula_cells FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return (row[0] if row else None) or {}
+
+
+def update_formula_cells(file_id, sheet_name, formula_cells):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE sheets SET formula_cells=%s WHERE file_id=%s AND sheet_name=%s",
+        (json.dumps(formula_cells), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def set_row_order_dirty(file_id, sheet_name, dirty):
+    """Tandai urutan/jumlah baris working_data sudah beda dari saat ingest
+    (habis sort/filter/dedupe/drop_na) -> peta formula_cells per-sel tidak
+    akurat lagi. Di-reset ke false lewat reset_working_data."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE sheets SET row_order_dirty=%s WHERE file_id=%s AND sheet_name=%s",
+        (bool(dirty), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_formula_info(file_id, sheet_name):
+    """Satu query buat preview: (formula_columns, formula_cells, row_order_dirty)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT formula_columns, formula_cells, row_order_dirty FROM sheets "
+        "WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return {}, {}, False
+    return row[0] or {}, row[1] or {}, bool(row[2])
 
 
 def get_sheet(file_id, sheet_name, version="working"):
@@ -216,7 +281,7 @@ def reset_working_data(file_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE sheets SET working_data=original_data, updated_at=now() WHERE file_id=%s",
+        "UPDATE sheets SET working_data=original_data, row_order_dirty=false, updated_at=now() WHERE file_id=%s",
         (file_id,),
     )
     conn.commit()
