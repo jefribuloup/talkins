@@ -5,7 +5,7 @@
  * - Baru tampil kalau proses > 150 ms (biar tidak berkedip), dan minimal tampil 300 ms.
  * - Opt-out per request: fetch(url, { noLoader: true }).
  * - API manual: MejaLoader.show() / MejaLoader.hide().
- * - Progress bar pindah page di bawah navbar: otomatis saat klik link internal,
+ * - Progress bar di bawah navbar: dikendalikan router.js saat pindah page,
  *   atau manual lewat MejaProgress.start() / MejaProgress.done().
  */
 (function () {
@@ -140,26 +140,6 @@
       }, 260);
     }, 200);
   }
-
-  function isInternalNavLink(a, e) {
-    if (!a || !a.href) return false;
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
-    if (a.target && a.target !== "_self") return false;
-    if (a.hasAttribute("download")) return false;
-    var url;
-    try { url = new URL(a.href, window.location.href); } catch (err) { return false; }
-    if (url.origin !== window.location.origin) return false;
-    if (url.pathname.indexOf("/api/") === 0 || url.pathname.indexOf("/static/") === 0) return false;
-    // link ke anchor di halaman yang sama tidak memicu perpindahan page
-    if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
-    return true;
-  }
-
-  document.addEventListener("click", function (e) {
-    var a = e.target.closest ? e.target.closest("a") : null;
-    if (e.defaultPrevented || !isInternalNavLink(a, e)) return;
-    progStart();
-  });
 
   // tombol Back/Forward yang mengambil halaman dari cache browser: pastikan bar tidak nyangkut
   window.addEventListener("pageshow", function (e) {
