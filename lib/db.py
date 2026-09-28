@@ -25,6 +25,8 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}'",
     "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_cells JSONB NOT NULL DEFAULT '{}'",
     "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS row_order_dirty BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS column_letters JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS original_meta JSONB NOT NULL DEFAULT '{}'",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload'",
 )
 _schema_ready = False
@@ -77,6 +79,8 @@ def init_db():
             formula_columns JSONB NOT NULL DEFAULT '{}',
             formula_cells JSONB NOT NULL DEFAULT '{}',
             row_order_dirty BOOLEAN NOT NULL DEFAULT false,
+            column_letters JSONB NOT NULL DEFAULT '{}',
+            original_meta JSONB NOT NULL DEFAULT '{}',
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             PRIMARY KEY (file_id, sheet_name)
         );
@@ -84,6 +88,8 @@ def init_db():
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}';
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_cells JSONB NOT NULL DEFAULT '{}';
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS row_order_dirty BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE sheets ADD COLUMN IF NOT EXISTS column_letters JSONB NOT NULL DEFAULT '{}';
+        ALTER TABLE sheets ADD COLUMN IF NOT EXISTS original_meta JSONB NOT NULL DEFAULT '{}';
         ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload';
 
         CREATE TABLE IF NOT EXISTS chat_messages (
@@ -165,27 +171,44 @@ def delete_file(session_id, file_id):
 
 # ---------- Sheets (original vs working copy) ----------
 
-def save_sheet(file_id, sheet_name, records, columns, formula_columns=None, formula_cells=None):
-    """Dipanggil sekali saat upload: original == working di awal."""
+def save_sheet(file_id, sheet_name, records, columns, formula_columns=None, formula_cells=None,
+               column_letters=None):
+    """Dipanggil sekali saat upload: original == working di awal.
+
+    column_letters: {nama_kolom: huruf kolom di sheet ASLI} -> dipakai header tabel (A, B, C...).
+    original_meta menyimpan snapshot metadata kolom saat upload supaya 'Reset ke asli'
+    ikut mengembalikan daftar kolom, info rumus, dan huruf kolom (bukan hanya datanya)."""
+    formula_columns = formula_columns or {}
+    formula_cells = formula_cells or {}
+    column_letters = column_letters or {}
+    original_meta = {
+        "columns": columns,
+        "formula_columns": formula_columns,
+        "formula_cells": formula_cells,
+        "column_letters": column_letters,
+    }
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
         """
         INSERT INTO sheets (file_id, sheet_name, original_data, working_data, columns,
-                            formula_columns, formula_cells, row_order_dirty)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,false)
+                            formula_columns, formula_cells, row_order_dirty,
+                            column_letters, original_meta)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,false,%s,%s)
         ON CONFLICT (file_id, sheet_name) DO UPDATE
         SET original_data=EXCLUDED.original_data,
             working_data=EXCLUDED.working_data,
             columns=EXCLUDED.columns,
             formula_columns=EXCLUDED.formula_columns,
             formula_cells=EXCLUDED.formula_cells,
-            row_order_dirty=false
+            row_order_dirty=false,
+            column_letters=EXCLUDED.column_letters,
+            original_meta=EXCLUDED.original_meta
         """,
         (
             file_id, sheet_name, json.dumps(records), json.dumps(records),
-            json.dumps(columns), json.dumps(formula_columns or {}),
-            json.dumps(formula_cells or {}),
+            json.dumps(columns), json.dumps(formula_columns), json.dumps(formula_cells),
+            json.dumps(column_letters), json.dumps(original_meta),
         ),
     )
     conn.commit()
@@ -261,11 +284,11 @@ def set_row_order_dirty(file_id, sheet_name, dirty):
 
 
 def get_formula_info(file_id, sheet_name):
-    """Satu query buat preview: (formula_columns, formula_cells, row_order_dirty)."""
+    """Satu query buat preview: (formula_columns, formula_cells, row_order_dirty, column_letters)."""
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "SELECT formula_columns, formula_cells, row_order_dirty FROM sheets "
+        "SELECT formula_columns, formula_cells, row_order_dirty, column_letters FROM sheets "
         "WHERE file_id=%s AND sheet_name=%s",
         (file_id, sheet_name),
     )
@@ -273,8 +296,33 @@ def get_formula_info(file_id, sheet_name):
     cur.close()
     conn.close()
     if not row:
-        return {}, {}, False
-    return row[0] or {}, row[1] or {}, bool(row[2])
+        return {}, {}, False, {}
+    return row[0] or {}, row[1] or {}, bool(row[2]), row[3] or {}
+
+
+def get_column_letters(file_id, sheet_name):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT column_letters FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return (row[0] if row else None) or {}
+
+
+def update_column_letters(file_id, sheet_name, column_letters):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE sheets SET column_letters=%s WHERE file_id=%s AND sheet_name=%s",
+        (json.dumps(column_letters), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def get_sheet(file_id, sheet_name, version="working"):
@@ -311,7 +359,17 @@ def reset_working_data(file_id):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE sheets SET working_data=original_data, row_order_dirty=false, updated_at=now() WHERE file_id=%s",
+        """
+        UPDATE sheets SET
+            working_data    = original_data,
+            columns         = COALESCE(original_meta->'columns', columns),
+            formula_columns = COALESCE(original_meta->'formula_columns', formula_columns),
+            formula_cells   = COALESCE(original_meta->'formula_cells', formula_cells),
+            column_letters  = COALESCE(original_meta->'column_letters', column_letters),
+            row_order_dirty = false,
+            updated_at      = now()
+        WHERE file_id=%s
+        """,
         (file_id,),
     )
     conn.commit()
