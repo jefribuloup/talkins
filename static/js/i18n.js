@@ -73,6 +73,11 @@
       "workspace.formula.dirtyNote": "Data sheet ini sudah diurutkan/difilter, jadi posisi baris berubah dan rumus per-sel tidak bisa dipastikan. Kolom {col} aslinya {pct}% berisi rumus (mis. {sample}). Gunakan Reset untuk kembali ke data asli.",
       "workspace.formula.more": "+{n} sel lain tidak ditampilkan — pilih rentang yang lebih kecil.",
       "workspace.formula.dirtyFlag": "data sudah dimanipulasi",
+      "workspace.chat.thinking": "Berpikir...",
+      "workspace.chat.sheetsUsed": "Sheet dianalisis: {sheets}",
+      "workspace.chat.errorPrefix": "Gagal",
+      "workspace.chat.errorAnswer": "Gagal mendapat jawaban",
+      "workspace.pager.info": "Hal {page} / {total} · {rows} baris",
       "workspace.chat.intro": "Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.",
       "workspace.pager.prev": "‹ Sebelumnya",
       "workspace.pager.next": "Selanjutnya ›",
@@ -152,6 +157,11 @@
       "workspace.formula.dirtyNote": "This sheet was sorted/filtered, so row positions changed and per-cell formulas can't be confirmed. Column {col} originally had {pct}% formulas (e.g. {sample}). Use Reset to return to the original data.",
       "workspace.formula.more": "+{n} more cells not shown — select a smaller range.",
       "workspace.formula.dirtyFlag": "data was manipulated",
+      "workspace.chat.thinking": "Thinking...",
+      "workspace.chat.sheetsUsed": "Sheets analyzed: {sheets}",
+      "workspace.chat.errorPrefix": "Failed",
+      "workspace.chat.errorAnswer": "Failed to get an answer",
+      "workspace.pager.info": "Page {page} / {total} · {rows} rows",
       "workspace.chat.intro": "Hi — ask anything about the data you uploaded: patterns, summaries, or ask to turn it into another format.",
       "workspace.pager.prev": "‹ Previous",
       "workspace.pager.next": "Next ›",
@@ -184,6 +194,9 @@
     if (langCurrent) langCurrent.textContent = lang.toUpperCase();
 
     document.documentElement.setAttribute("lang", lang);
+
+    // Beri tahu skrip lain (mis. workspace.js) supaya teks yang dibuat lewat JS ikut diterjemahkan.
+    window.dispatchEvent(new CustomEvent("mejadata:langchange", { detail: { lang } }));
   }
 
   window.MejaDataI18n = {
@@ -193,6 +206,9 @@
       return (DICT[l] || DICT.id)[key] || key;
     },
     apply: applyLang,
+    getLang() {
+      return localStorage.getItem(STORAGE_KEY) || "id";
+    },
   };
 
   const saved = localStorage.getItem(STORAGE_KEY) || "id";
