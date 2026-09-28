@@ -39,8 +39,6 @@
       <button class="btn btn-primary" id="opApply" data-i18n="workspace.toolbar.apply">Terapkan</button>
     </div>
 
-    <div class="formula-summary" id="formulaSummary" hidden></div>
-
     <div class="table-wrap" id="tableWrap">
       <table class="data-table" id="dataTable">
         <thead><tr id="tableHead"></tr></thead>
@@ -56,15 +54,31 @@
   </section>
 
   <section class="panel panel-chat">
-    <div class="chat-log" id="chatLog">
-      <div class="chat-msg chat-msg-assistant" data-i18n="workspace.chat.intro">
-        Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.
+    <div class="panel-tabs" id="panelTabs" role="tablist">
+      <button type="button" class="panel-tab active" role="tab" data-tab="chat" data-i18n="workspace.tabs.chat">Chat</button>
+      <button type="button" class="panel-tab" role="tab" data-tab="formula" data-i18n="workspace.tabs.formula">Rumus</button>
+    </div>
+
+    <div class="panel-tab-view" id="tabViewChat">
+      <div class="chat-log" id="chatLog">
+        <div class="chat-msg chat-msg-assistant" data-i18n="workspace.chat.intro">
+          Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.
+        </div>
+      </div>
+      <form class="chat-input-row" id="chatForm">
+        <input type="text" id="chatInput" data-i18n-placeholder="workspace.chat.placeholder" placeholder="Tanya soal datamu..." autocomplete="off">
+        <button type="submit" class="btn btn-primary" data-i18n="workspace.chat.send">Kirim</button>
+      </form>
+    </div>
+
+    <div class="panel-tab-view" id="tabViewFormula" hidden>
+      <div class="formula-panel" id="formulaPanel">
+        <p class="formula-panel-empty" id="formulaPanelEmpty" data-i18n="workspace.formula.empty">
+          Klik sel di tabel untuk melihat rumus dan alur datanya di sini.
+        </p>
+        <div class="formula-panel-content" id="formulaPanelContent" hidden></div>
       </div>
     </div>
-    <form class="chat-input-row" id="chatForm">
-      <input type="text" id="chatInput" data-i18n-placeholder="workspace.chat.placeholder" placeholder="Tanya soal datamu..." autocomplete="off">
-      <button type="submit" class="btn btn-primary" data-i18n="workspace.chat.send">Kirim</button>
-    </form>
   </section>
 
 </main>
