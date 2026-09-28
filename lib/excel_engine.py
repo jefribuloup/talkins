@@ -5,6 +5,7 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
 """
 import io
 import re
+import bisect
 import uuid
 import math
 import datetime
@@ -109,44 +110,88 @@ def _clean_dataframe(raw: pd.DataFrame):
 
 # ---------- Deteksi kolom rumus/formula bawaan ----------
 
-MAX_FORMULA_SAMPLE_ROWS = 300  # cukup buat nentuin pola kolom, ga perlu scan semua baris
+MAX_FORMULA_SCAN_ROWS = 500  # batas baris yg discan rumusnya (cukup mewakili, ga perlu scan semua)
 
 
-def _detect_formula_columns(raw_bytes, filename, sheet_name, columns, col_origin, row_origin):
-    """Kembalikan {nama_kolom: {"count", "checked", "ratio", "sample"}} untuk
-    kolom yang selnya berisi rumus Excel asli (string diawali '=') di data
-    aslinya, bukan nilai statis biasa.
+# Referensi sel A1-style: B4, $B$4, B4:B10. Lookbehind/lookahead menghindari salah tangkap
+# nama fungsi (LOG10(, ATAN2() dan referensi lintas-sheet (Sheet2!A1).
+_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_.!'\"])\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?(?![A-Za-z0-9_(])"
+)
+MAX_DEPS_PER_FORMULA = 12
 
-    Kenapa perlu baca ulang file: pandas/openpyxl versi 'data_only' membaca
-    HASIL hitungan rumus (angkanya), bukan rumusnya sendiri -> itu yang dipakai
-    utk isi tabel/chat. Di sini kita baca file yang sama sekali lagi pakai
-    openpyxl mode data_only=False, khusus buat intip string rumus aslinya,
-    lalu dipetakan balik ke kolom yang sudah dibersihkan lewat col_origin/row_origin.
 
-    Hanya berlaku utk .xlsx/.xlsm — format .xls lama (engine xlrd) tidak
-    menyimpan rumus dengan cara yang bisa dibaca ulang seperti ini.
+def _letters_to_idx(letters):
+    n = 0
+    for ch in letters:
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
+
+
+def _parse_formula_deps(formula, inv_col_origin, row_origin):
+    """Ekstrak 'bahan' rumus: list {"ref", "cols", "rows"} dgn kolom dipetakan ke NAMA
+    kolom hasil pembersihan dan baris dipetakan ke nomor baris (1-based) di tabel
+    bersih. rows=None kalau referensinya di luar area data (mis. baris judul)."""
+    deps, seen = [], set()
+    for m in _REF_RE.finditer(formula):
+        ref = m.group(0).replace("$", "")
+        if ref in seen:
+            continue
+        seen.add(ref)
+        c1 = _letters_to_idx(m.group(1))
+        r1 = int(m.group(2)) - 1
+        c2 = _letters_to_idx(m.group(3)) if m.group(3) else c1
+        r2 = int(m.group(4)) - 1 if m.group(4) else r1
+        c_lo, c_hi = min(c1, c2), max(c1, c2)
+        r_lo, r_hi = min(r1, r2), max(r1, r2)
+        cols = [inv_col_origin[c] for c in range(c_lo, min(c_hi, c_lo + 60) + 1) if c in inv_col_origin]
+        i_lo = bisect.bisect_left(row_origin, r_lo)
+        i_hi = bisect.bisect_right(row_origin, r_hi) - 1
+        rows = [i_lo + 1, i_hi + 1] if i_lo <= i_hi else None
+        deps.append({"ref": ref, "cols": cols, "rows": rows})
+        if len(deps) >= MAX_DEPS_PER_FORMULA:
+            break
+    return deps
+
+
+def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_origin):
+    """Baca ulang file pakai openpyxl (data_only=False) untuk mendapat 2 hal sekaligus:
+
+    1) formula_columns: {nama_kolom: {"count","checked","ratio","sample"}} -> ringkasan
+       per kolom (dipakai penanda ƒx di header, profil chat, dan fallback tab Rumus).
+    2) formula_cells: {"<posisi_baris>": {nama_kolom: {"f","deps","x"}}} -> peta PER SEL, hanya
+       sel yang benar-benar rumus (sparse). posisi_baris = index 0-based baris di
+       working_data SAAT INGEST. Kalau nanti baris di-sort/filter/dedupe, posisi itu
+       bergeser -> ditandai lewat row_order_dirty di db, bukan dihapus.
+
+    Kenapa baca ulang: pandas hanya membaca HASIL hitung rumus (angka), bukan
+    string rumusnya. Hanya .xlsx/.xlsm; format .xls lama (xlrd) tidak bisa.
+    Mengembalikan (formula_columns, formula_cells).
     """
     if not filename.lower().endswith((".xlsx", ".xlsm")):
-        return {}
+        return {}, {}
     try:
         wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=False)
     except Exception:
-        return {}
+        return {}, {}
     if sheet_name not in wb.sheetnames:
         wb.close()
-        return {}
+        return {}, {}
     ws = wb[sheet_name]
 
-    sample_rows = row_origin[:MAX_FORMULA_SAMPLE_ROWS]
-    result = {}
+    scan_rows = list(enumerate(row_origin[:MAX_FORMULA_SCAN_ROWS]))  # (posisi, baris_asli)
+    inv_col_origin = {idx: name for name, idx in col_origin.items()}
+    formula_columns = {}
+    formula_cells = {}
+
     for col_name in columns:
         orig_col = col_origin.get(col_name)
         if orig_col is None:
             continue
         checked = formula_hits = 0
         sample_formula = None
-        for orig_row in sample_rows:
-            # +1 krn openpyxl 1-based, raw_df/col_origin/row_origin 0-based
+        for row_pos, orig_row in scan_rows:
+            # +1 krn openpyxl 1-based, sedangkan col_origin/row_origin 0-based
             val = ws.cell(row=orig_row + 1, column=orig_col + 1).value
             if val is None:
                 continue
@@ -155,15 +200,21 @@ def _detect_formula_columns(raw_bytes, filename, sheet_name, columns, col_origin
                 formula_hits += 1
                 if sample_formula is None:
                     sample_formula = val
+                formula_cells.setdefault(str(row_pos), {})[col_name] = {
+                    "f": val,
+                    "deps": _parse_formula_deps(val, inv_col_origin, row_origin),
+                    "x": "!" in val,  # merujuk sheet lain
+                }
         if formula_hits:
-            result[col_name] = {
+            formula_columns[col_name] = {
                 "count": formula_hits,
                 "checked": checked,
                 "ratio": round(formula_hits / checked, 2) if checked else 0,
                 "sample": sample_formula,
             }
+
     wb.close()
-    return result
+    return formula_columns, formula_cells
 
 
 # ---------- Ingest ----------
@@ -244,10 +295,10 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
             continue
         columns = list(clean_df.columns.astype(str))
         records = df_to_records(clean_df)
-        formula_columns = _detect_formula_columns(
+        formula_columns, formula_cells = _detect_formulas(
             raw_bytes, filename, sheet_name, columns, col_origin, row_origin
         )
-        db.save_sheet(file_id, sheet_name, records, columns, formula_columns)
+        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -279,13 +330,28 @@ def preview_sheet(file_id, sheet_name, page=1):
     page = max(1, min(page, total_pages))
     start = (page - 1) * PAGE_SIZE
     chunk = records[start:start + PAGE_SIZE]
+
+    formula_columns, formula_cells_all, row_order_dirty = db.get_formula_info(file_id, sheet_name)
+
+    # Peta per-sel hanya valid kalau urutan baris belum berubah sejak ingest.
+    # Kirim hanya potongan untuk halaman ini, dgn key relatif halaman (0..len(chunk)-1).
+    formula_cells_page = {}
+    if not row_order_dirty:
+        for i in range(len(chunk)):
+            row_map = formula_cells_all.get(str(start + i))
+            if row_map:
+                formula_cells_page[str(i)] = row_map
+
     return {
         "columns": conn_cols,
         "rows": chunk,
         "page": page,
+        "page_size": PAGE_SIZE,
         "total_pages": total_pages,
         "total_rows": total_rows,
-        "formula_columns": db.get_formula_columns(file_id, sheet_name),
+        "formula_columns": formula_columns,
+        "formula_cells": formula_cells_page,
+        "row_order_dirty": row_order_dirty,
     }
 
 
@@ -362,17 +428,29 @@ def apply_operation(file_id, op):
     new_records = df_to_records(df)
     db.update_working_data(file_id, sheet_name, new_records, new_columns)
 
-    # Sinkronkan info kolom-rumus kalau nama kolom berubah/kolom dihapus,
-    # supaya badge "ƒx" di UI & profil data buat chat tetap akurat.
+    # Aksi yang mengubah urutan/jumlah baris -> peta rumus per-sel (berbasis posisi
+    # baris saat ingest) tidak akurat lagi sampai user reset ke data asli.
+    if action in ("drop_na", "drop_duplicates", "filter_rows", "sort"):
+        db.set_row_order_dirty(file_id, sheet_name, True)
+
+    # Sinkronkan nama kolom di info rumus kalau kolom di-rename/dihapus.
     if action in ("rename_column", "drop_column"):
         formula_columns = db.get_formula_columns(file_id, sheet_name)
-        if formula_columns:
-            if action == "rename_column" and op["from"] in formula_columns:
-                formula_columns[op["to"]] = formula_columns.pop(op["from"])
-            elif action == "drop_column":
-                for c in op.get("columns", []):
-                    formula_columns.pop(c, None)
-            db.update_formula_columns(file_id, sheet_name, formula_columns)
+        formula_cells = db.get_formula_cells(file_id, sheet_name)
+        if action == "rename_column":
+            old, new = op["from"], op["to"]
+            if old in formula_columns:
+                formula_columns[new] = formula_columns.pop(old)
+            for row_map in formula_cells.values():
+                if old in row_map:
+                    row_map[new] = row_map.pop(old)
+        else:
+            for c in op.get("columns", []):
+                formula_columns.pop(c, None)
+                for row_map in formula_cells.values():
+                    row_map.pop(c, None)
+        db.update_formula_columns(file_id, sheet_name, formula_columns)
+        db.update_formula_cells(file_id, sheet_name, formula_cells)
 
     return {
         "columns": new_columns,
