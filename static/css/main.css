@@ -75,6 +75,7 @@ a { color: inherit; }
 /* ---------- Navbar ---------- */
 
 .navbar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -385,4 +386,29 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
     animation-duration: 1.6s !important;
     border-color: var(--accent);
   }
+}
+
+/* ---------- Progress bar pindah page (di bawah navbar) ---------- */
+
+.nav-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;               /* menempel di garis bawah navbar */
+  height: 3px;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+.nav-progress.active { opacity: 1; }
+.nav-progress span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.25s ease-out;
 }
