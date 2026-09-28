@@ -271,10 +271,13 @@
     applySelection([`${r},${c}`], e, { anchor: { r, c }, single: true });
   });
 
+  // Listener global dibatalkan otomatis oleh router saat user pindah page (tanpa reload)
+  const pageSignal = window.MejaRouter ? window.MejaRouter.signal : undefined;
+
   document.addEventListener("keydown", (e) => {
     const tag = (document.activeElement && document.activeElement.tagName) || "";
     if (e.key === "Escape" && !/INPUT|TEXTAREA|SELECT/.test(tag) && state.selectedCells.size) clearSelection();
-  });
+  }, { signal: pageSignal });
 
   function renderSelectionHighlight() {
     const d = state.currentPreview;
@@ -614,7 +617,7 @@
     chatLog.querySelectorAll(".chat-msg-meta[data-sheets]").forEach(renderSheetsMeta);
     if (state.currentPreview) renderPager(state.currentPreview);
     renderFormulaPanel();
-  });
+  }, { signal: pageSignal });
 
   // ---------- Modal slide ----------
 
@@ -698,8 +701,8 @@
           e.preventDefault();
           await fetch(`/api/files/${f.id}`, { method: "DELETE" });
           if (f.id === fileId) {
-            if (window.MejaProgress) window.MejaProgress.start();
-            window.location.href = "/dashboard";
+            if (window.MejaRouter) window.MejaRouter.go("/dashboard");
+            else window.location.href = "/dashboard";
             return;
           }
           loadWsFileHistory();
@@ -747,8 +750,8 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal memproses link");
       setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
-      if (window.MejaProgress) window.MejaProgress.start();
-      window.location.href = `/workspace/${data.file_id}`;
+      if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
+      else window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setWsUrlStatus(err.message, true);
     } finally {
@@ -773,8 +776,8 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload gagal");
       setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
-      if (window.MejaProgress) window.MejaProgress.start();
-      window.location.href = `/workspace/${data.file_id}`;
+      if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
+      else window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setWsStatus(err.message, true);
     }
