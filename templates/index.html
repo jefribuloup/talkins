@@ -53,9 +53,11 @@
 <script src="/static/js/preloader.js"></script>
 <script src="/static/js/theme.js"></script>
 <script src="/static/js/i18n.js"></script>
+<script src="/static/js/router.js"></script>
 <script>
   document.getElementById("heroVisual").addEventListener("click", () => {
-    window.location.href = "/dashboard";
+    if (window.MejaRouter) window.MejaRouter.go("/dashboard");
+    else window.location.href = "/dashboard";
   });
 </script>
 </body>
