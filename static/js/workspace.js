@@ -698,6 +698,7 @@
           e.preventDefault();
           await fetch(`/api/files/${f.id}`, { method: "DELETE" });
           if (f.id === fileId) {
+            if (window.MejaProgress) window.MejaProgress.start();
             window.location.href = "/dashboard";
             return;
           }
@@ -746,6 +747,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal memproses link");
       setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
+      if (window.MejaProgress) window.MejaProgress.start();
       window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setWsUrlStatus(err.message, true);
@@ -771,6 +773,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload gagal");
       setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
+      if (window.MejaProgress) window.MejaProgress.start();
       window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setWsStatus(err.message, true);
