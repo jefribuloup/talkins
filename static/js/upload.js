@@ -29,6 +29,7 @@
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload gagal");
       setStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
+      if (window.MejaProgress) window.MejaProgress.start();
       window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setStatus(err.message, true);
