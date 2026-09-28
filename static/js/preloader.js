@@ -5,6 +5,8 @@
  * - Baru tampil kalau proses > 150 ms (biar tidak berkedip), dan minimal tampil 300 ms.
  * - Opt-out per request: fetch(url, { noLoader: true }).
  * - API manual: MejaLoader.show() / MejaLoader.hide().
+ * - Progress bar pindah page di bawah navbar: otomatis saat klik link internal,
+ *   atau manual lewat MejaProgress.start() / MejaProgress.done().
  */
 (function () {
   "use strict";
@@ -85,6 +87,86 @@
       );
     };
   }
+
+
+  // ---------- Progress bar pindah page (di bawah navbar) ----------
+
+  var progEl = null;
+  var progBar = null;
+  var progValue = 0;
+  var progTimer = null;
+  var progSafety = null;
+
+  function progInit() {
+    if (progEl) return true;
+    progEl = document.getElementById("navProgress");
+    progBar = progEl ? progEl.firstElementChild : null;
+    return !!progBar;
+  }
+
+  function progSet(v) {
+    progValue = v;
+    progBar.style.transform = "scaleX(" + v + ")";
+  }
+
+  function progStart() {
+    if (!progInit()) return;
+    clearInterval(progTimer);
+    clearTimeout(progSafety);
+    progBar.style.transition = "none";
+    progSet(0);
+    void progBar.offsetWidth; // paksa reflow supaya animasi mulai dari 0
+    progBar.style.transition = "";
+    progEl.classList.add("active");
+    progSet(0.08);
+    // merayap pelan mendekati 90%, lalu menunggu halaman baru terbuka
+    progTimer = setInterval(function () {
+      progSet(progValue + (0.9 - progValue) * 0.08);
+    }, 200);
+    // pengaman: kalau halaman tidak berpindah (mis. link berupa unduhan), tutup bar
+    progSafety = setTimeout(progDone, 12000);
+  }
+
+  function progDone() {
+    if (!progInit()) return;
+    clearInterval(progTimer);
+    clearTimeout(progSafety);
+    progSet(1);
+    setTimeout(function () {
+      progEl.classList.remove("active");
+      setTimeout(function () {
+        progBar.style.transition = "none";
+        progSet(0);
+      }, 260);
+    }, 200);
+  }
+
+  function isInternalNavLink(a, e) {
+    if (!a || !a.href) return false;
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return false;
+    if (a.target && a.target !== "_self") return false;
+    if (a.hasAttribute("download")) return false;
+    var url;
+    try { url = new URL(a.href, window.location.href); } catch (err) { return false; }
+    if (url.origin !== window.location.origin) return false;
+    if (url.pathname.indexOf("/api/") === 0 || url.pathname.indexOf("/static/") === 0) return false;
+    // link ke anchor di halaman yang sama tidak memicu perpindahan page
+    if (url.pathname === window.location.pathname && url.search === window.location.search) return false;
+    return true;
+  }
+
+  document.addEventListener("click", function (e) {
+    var a = e.target.closest ? e.target.closest("a") : null;
+    if (e.defaultPrevented || !isInternalNavLink(a, e)) return;
+    progStart();
+  });
+
+  // tombol Back/Forward yang mengambil halaman dari cache browser: pastikan bar tidak nyangkut
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted) progDone();
+  });
+
+  window.MejaProgress = { start: progStart, done: progDone };
 
   window.MejaLoader = { show: show, hide: hide };
 })();
