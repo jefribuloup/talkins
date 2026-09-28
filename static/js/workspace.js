@@ -4,7 +4,6 @@
 
   const sheetTabs = document.getElementById("sheetTabs");
   const tableLetters = document.getElementById("tableLetters");
-  const tableHead = document.getElementById("tableHead");
   const tableBody = document.getElementById("tableBody");
   const tableWrap = document.getElementById("tableWrap");
   const panelTabs = document.getElementById("panelTabs");
@@ -165,27 +164,33 @@
     const formulaCols = data.formula_columns || {};
     const offset = (data.page - 1) * data.page_size;
 
-    // Header gaya spreadsheet, dua baris:
-    //   1) huruf kolom A, B, C... (huruf di sheet ASLI, jadi cocok dgn rumus seperti =B4*C4)
-    //   2) nama kolom hasil deteksi (tetap dipakai toolbar, chat, dan tab Rumus)
-    // Klik salah satunya = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
+    // Header cuma satu baris: huruf kolom A, B, C... (huruf di sheet ASLI, jadi cocok dgn rumus
+    // seperti =B4*C4). Nama kolom hasil deteksi TIDAK lagi jadi header terpisah: di spreadsheet
+    // ia hanya sel biasa di baris pertama, jadi ditampilkan sebagai baris data pertama di bawah.
+    // Nama kolom tetap dipakai di balik layar (toolbar, chat, tab Rumus) dan muncul sbg tooltip.
+    // Klik huruf = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
     tableLetters.innerHTML =
-      `<th class="row-gutter"></th>` +
-      data.columns
-        .map((c, j) => `<th class="col-letter" data-col="${j}">${colLetter(data, c, j)}</th>`)
-        .join("");
-
-    tableHead.innerHTML =
       `<th class="row-gutter"></th>` +
       data.columns
         .map((c, j) => {
           const tag = formulaCols[c] ? `<span class="col-formula-tag">ƒx</span>` : "";
-          return `<th class="col-name" data-col="${j}" title="${escapeHtml(c)}">${escapeHtml(c)}${tag}</th>`;
+          return `<th class="col-letter" data-col="${j}" title="${escapeHtml(c)}">${colLetter(data, c, j)}${tag}</th>`;
         })
         .join("");
 
+    // Baris header asli (mis. baris 1) ditampilkan sbg baris pertama tabel, hanya di halaman 1.
+    // Kolom yg namanya dibuat otomatis (kolom_N) berarti selnya kosong di sheet asli.
+    const headerRowHtml =
+      data.page === 1
+        ? `<tr class="header-as-row"><td class="row-gutter">${data.header_row || 1}</td>` +
+          data.columns
+            .map((c) => `<td>${/^kolom_\d+$/.test(c) ? "" : escapeHtml(c)}</td>`)
+            .join("") +
+          `</tr>`
+        : "";
+
     // Body: nomor baris (klik = pilih baris penuh) + sel data.
-    tableBody.innerHTML = data.rows
+    tableBody.innerHTML = headerRowHtml + data.rows
       .map(
         (row, r) =>
           `<tr><td class="row-gutter" data-row="${r}">${rowNumber(data, offset + r)}</td>` +
@@ -287,12 +292,12 @@
     applySelection(keys, e, { anchor: { r: 0, c }, single: false });
   };
   tableLetters.addEventListener("click", onHeaderClick);
-  tableHead.addEventListener("click", onHeaderClick);
 
   tableBody.addEventListener("click", (e) => {
     if (!state.currentPreview) return;
     const gutter = e.target.closest("td.row-gutter");
     if (gutter) {
+      if (gutter.dataset.row === undefined) return; // gutter baris header (bukan data)
       const r = Number(gutter.dataset.row);
       const keys = state.currentPreview.columns.map((_, c) => `${r},${c}`);
       applySelection(keys, e, { anchor: { r, c: 0 }, single: false });
@@ -328,7 +333,7 @@
       const r = td.dataset.row;
       td.classList.toggle("gutter-active", d.columns.some((_, c) => sel.has(`${r},${c}`)));
     });
-    [tableLetters, tableHead].forEach((row) => {
+    [tableLetters].forEach((row) => {
       row.querySelectorAll("th[data-col]").forEach((th) => {
         const c = th.dataset.col;
         let all = rowsN > 0;
