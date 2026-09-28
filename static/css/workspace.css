@@ -583,7 +583,86 @@
 .slide-item h4 { margin: 0 0 8px; font-family: var(--font-display); font-size: 15px; color: var(--accent); }
 .slide-item ul { margin: 0; padding-left: 18px; font-size: 13.5px; color: var(--text-muted); }
 
+/* Tombol <a> di bar aksi tampil sama seperti tombol lain (tanpa garis bawah) */
+.ws-actions .btn { text-decoration: none; text-align: center; }
+
+/* ---------- Mobile & tablet: panel data dan chat ditumpuk, halaman scroll normal ---------- */
+
 @media (max-width: 900px) {
-  .ws-main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-  .panel-data { border-right: none; border-bottom: 1px solid var(--grid-line); }
+  /* Sebelumnya tinggi .ws-main cuma sisa layar (setelah navbar/tombol/footer) lalu dibagi 2 dan
+     dipotong overflow:hidden -> tabel tinggal beberapa cm. Sekarang tinggi mengikuti isi, dan
+     tiap panel diberi tinggi yang layak; halaman yang scroll, bukan panelnya. */
+  .ws-main {
+    display: flex;
+    flex-direction: column;
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .panel { flex: none; }
+  .panel-data {
+    height: 75vh;
+    height: 75dvh;
+    min-height: 440px;
+    max-height: 720px;
+    border-right: none;
+    border-bottom: 1px solid var(--grid-line);
+  }
+  .panel-chat {
+    height: 68vh;
+    height: 68dvh;
+    min-height: 400px;
+    max-height: 620px;
+  }
+  .table-wrap { -webkit-overflow-scrolling: touch; }
+}
+
+@media (max-width: 600px) {
+  /* Bar aksi: 2 kolom rapi, tombol sama besar */
+  .ws-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 10px 12px;
+  }
+  .ws-actions .btn {
+    width: 100%;
+    padding: 9px 8px;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sheet-tabs { padding: 8px 12px 0; }
+  .sheet-tab { padding: 7px 12px; }
+
+  /* Toolbar: pilihan aksi + tombol dalam satu baris, parameter di baris sendiri */
+  .toolbar { padding: 10px 12px; gap: 8px; }
+  .toolbar-select { flex: 1 1 0; min-width: 0; }
+  .toolbar-params { flex: 1 1 100%; order: 3; }
+  .toolbar-params:empty { display: none; }
+  .toolbar-params input,
+  .toolbar-params select { flex: 1 1 120px; min-width: 0; }
+  .toolbar-select,
+  .toolbar-params input,
+  .toolbar-params select { font-size: 16px; }   /* cegah iOS zoom otomatis saat fokus */
+
+  /* Tabel lebih padat, sel panjang dipotong (isi lengkap tetap ada di tab Rumus) */
+  .data-table { font-size: 12px; }
+  .data-table th,
+  .data-table td { padding: 6px 8px; }
+  .data-table td { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Pager: satu baris */
+  .pager { flex-wrap: nowrap; gap: 8px; padding: 8px 10px; }
+  .pager .btn { flex: none; padding: 7px 10px; font-size: 12px; white-space: nowrap; }
+  .pager-info { flex: 1; min-width: 0; text-align: center; font-size: 11px; line-height: 1.35; }
+
+  /* Panel chat / rumus */
+  .panel-tabs { padding: 8px 12px 0; }
+  .chat-log { padding: 14px 12px; gap: 12px; }
+  .chat-msg { max-width: 96%; }
+  .chat-input-row { padding: 10px 12px; gap: 8px; }
+  .chat-input-row input { min-width: 0; font-size: 16px; }
+  .formula-panel { padding: 12px; }
 }
