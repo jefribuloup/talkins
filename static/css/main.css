@@ -340,3 +340,49 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
   .strip-row { border-left: none; border-top: 1px solid var(--grid-line); }
   .strip-row:first-child { border-top: none; }
 }
+
+/* ---------- Preloader global (tengah layar, tidak memblokir interaksi) ---------- */
+
+.md-preloader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 9999;
+  pointer-events: none;      /* interface di belakangnya tetap bisa dipakai */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.18s ease, visibility 0.18s;
+}
+.md-preloader.show { opacity: 1; visibility: visible; }
+
+.md-preloader-box {
+  display: grid;
+  place-items: center;
+  width: clamp(56px, 12vw, 84px);   /* menyesuaikan lebar layar */
+  aspect-ratio: 1;
+  background: var(--panel-raised);
+  border: 1px solid var(--grid-line);
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+}
+
+.md-spin {
+  width: 48%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: clamp(3px, 0.6vw, 4px) solid var(--grid-line);
+  border-top-color: var(--accent);
+  animation: md-spin 0.8s linear infinite;
+}
+@keyframes md-spin { to { transform: rotate(360deg); } }
+@keyframes md-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* rotasi diganti denyut halus, tetap terlihat bahwa proses berjalan */
+  .md-preloader .md-spin {
+    animation: md-pulse 1.6s ease-in-out infinite !important;
+    animation-duration: 1.6s !important;
+    border-color: var(--accent);
+  }
+}
