@@ -709,3 +709,25 @@
   .chat-input-row input { min-width: 0; font-size: 16px; }
   .formula-panel { padding: 12px; }
 }
+
+/* ---------- Saran rumus (bagian atas tab Rumus) ---------- */
+.fs-wrap { display: flex; flex-direction: column; gap: 8px; }
+.fs-wrap:empty { display: none; }
+.fs-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; }
+.fs-ref { font-family: var(--font-mono); font-size: 12px; font-weight: 500; color: var(--accent); }
+.fs-sep { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; color: var(--text-muted); }
+.fs-sep select {
+  font: inherit; color: var(--text); background: var(--panel-raised);
+  border: 1px solid var(--grid-line); border-radius: 6px; padding: 1px 4px;
+}
+.fs-note { margin: 0; }
+.fs-cat { margin-top: 4px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.fs-top { display: flex; align-items: flex-start; gap: 8px; }
+.fs-top .fp-formula { flex: 1; min-width: 0; margin-bottom: 0; word-break: break-all; }
+.fs-copy { flex: none; padding: 3px 9px; font-size: 12px; }
+.fs-desc { margin: 7px 0 0; }
+.fs-card .fp-value { margin-top: 7px; }
+.fs-prev { margin-top: 8px; border-collapse: collapse; font-size: 12.5px; }
+.fs-prev caption { text-align: left; padding-bottom: 3px; color: var(--text-muted); }
+.fs-prev td { padding: 2px 12px 2px 0; white-space: pre; color: var(--text-muted); }
+.fs-prev td:last-child { padding-right: 0; font-weight: 600; color: var(--text); }
