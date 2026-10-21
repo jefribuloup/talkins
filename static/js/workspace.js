@@ -105,7 +105,9 @@
   // Area kosong di luar data ditampilkan seperti Excel, dan bertambah sendiri saat user scroll
   // mendekati tepi bawah/kanan.
   const ROW_H = 26;          // tinggi tiap baris (px)
-  const COL_W = 96;          // lebar tiap kolom (px)
+  const COL_W = 96;          // lebar standar kolom KOSONG (px)
+  const MIN_FILLED_W = 48;   // lebar minimum kolom yang berisi data
+  const MAX_FILLED_W = 420;  // lebar maksimum kolom yang berisi data
   const GUTTER_W = 52;       // lebar kolom nomor baris
   const HEAD_H = 26;         // tinggi baris huruf kolom
   const MAX_ROWS = 1048576;  // batas Excel
@@ -131,6 +133,8 @@
     viewCols: 0,
     sel: { rects: [], anchor: null }, // pilihan = daftar persegi panjang {r1,c1,r2,c2} (0-based, inklusif)
     precedents: new Set(),     // sel "bahan rumus" yang lagi ditandai: key "r,c"
+    colW: [],                  // lebar (px) tiap kolom data; kolom di luar data memakai COL_W
+    colX: [0],                 // posisi kiri kumulatif: colX[c] = jumlah lebar kolom 0..c-1
     lastWin: null,
   };
 
@@ -192,6 +196,52 @@
     return (_letterCache[idx] = out);
   }
 
+  // ---------- Lebar kolom dinamis ----------
+  // Kolom yang berisi data melebar mengikuti teks terpanjangnya (batas MIN..MAX_FILLED_W).
+  // Kolom yang masih kosong tetap selebar standar (COL_W), seperti Excel.
+  let charW = 0;
+  function measureCharW() {
+    if (charW) return charW;
+    charW = 7.5; // cadangan untuk font monospace 12.5px
+    try {
+      const ctx = document.createElement("canvas").getContext("2d");
+      if (ctx) {
+        const cs = getComputedStyle(dataTable);
+        ctx.font = `${cs.fontSize || "12.5px"} ${cs.fontFamily || "monospace"}`;
+        const w = ctx.measureText("0").width;
+        if (w > 3 && w < 20) charW = w;
+      }
+    } catch (e) { /* pakai cadangan */ }
+    return charW;
+  }
+
+  function computeColWidths(chars) {
+    const cw = measureCharW();
+    state.colW = (chars || []).map((n) =>
+      n > 0 ? Math.min(MAX_FILLED_W, Math.max(MIN_FILLED_W, Math.ceil(n * cw) + 20)) : COL_W
+    );
+    state.colX = [0];
+    state.colW.forEach((w, i) => state.colX.push(state.colX[i] + w));
+  }
+
+  const colW = (c) => (c < state.colW.length ? state.colW[c] : COL_W);
+  const colLeft = (c) => {
+    const n = state.colW.length;
+    return c <= n ? state.colX[c] : state.colX[n] + (c - n) * COL_W;
+  };
+  // indeks kolom yang memuat posisi x (px, relatif awal kolom A)
+  function colAt(x) {
+    const n = state.colW.length;
+    const end = state.colX[n];
+    if (x >= end) return n + Math.floor((x - end) / COL_W);
+    let lo = 0, hi = n - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (state.colX[mid] <= x) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+  }
+
   // ---------- Memuat data (per blok baris) ----------
 
   async function loadPreview() {
@@ -217,6 +267,7 @@
     state.lastWin = null;
 
     // Awal: data + sedikit baris/kolom kosong (seperti Excel). Sisanya muncul saat user scroll.
+    computeColWidths(data.col_chars);
     state.viewRows = Math.min(MAX_ROWS, Math.max(MIN_ROWS, data.total_rows + PAD_ROWS));
     state.viewCols = Math.min(MAX_COLS, Math.max(MIN_COLS, data.total_cols + PAD_COLS));
     tableWrap.scrollTop = 0;
@@ -399,13 +450,13 @@
 
     // Selalu sediakan cukup baris/kolom kosong supaya layar penuh dan tabel bisa di-scroll.
     state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, Math.ceil((vh - HEAD_H) / ROW_H) + 2));
-    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, Math.ceil((vw - GUTTER_W) / COL_W) + 2));
+    while (colLeft(state.viewCols) < vw - GUTTER_W + 2 * COL_W && state.viewCols < MAX_COLS) state.viewCols++;
 
     const sT = tableWrap.scrollTop, sL = tableWrap.scrollLeft;
-    const r0 = Math.max(0, Math.floor(sT / ROW_H) - OVERSCAN_ROWS);
+    const r0 = Math.min(Math.max(0, Math.floor(sT / ROW_H) - OVERSCAN_ROWS), Math.max(0, state.viewRows - 1));
     const r1 = Math.min(state.viewRows, Math.ceil((sT + vh) / ROW_H) + OVERSCAN_ROWS);
-    const c0 = Math.max(0, Math.floor(sL / COL_W) - OVERSCAN_COLS);
-    const c1 = Math.min(state.viewCols, Math.ceil((sL + vw) / COL_W) + OVERSCAN_COLS);
+    const c0 = Math.min(Math.max(0, colAt(sL) - OVERSCAN_COLS), Math.max(0, state.viewCols - 1));
+    const c1 = Math.min(state.viewCols, colAt(sL + vw) + 1 + OVERSCAN_COLS);
 
     const key = [r0, r1, c0, c1, state.viewRows, state.viewCols].join();
     if (!force && key === state.lastWin) return;
@@ -418,11 +469,11 @@
 
     // colgroup: lebar tetap -> tata letak tabel stabil walau hanya sebagian kolom yang dirender
     let cg = `<col style="width:${GUTTER_W}px">`;
-    if (leftSpacer) cg += `<col style="width:${c0 * COL_W}px">`;
-    for (let c = c0; c < c1; c++) cg += `<col style="width:${COL_W}px">`;
-    if (rightSpacer) cg += `<col style="width:${(state.viewCols - c1) * COL_W}px">`;
+    if (leftSpacer) cg += `<col style="width:${colLeft(c0)}px">`;
+    for (let c = c0; c < c1; c++) cg += `<col style="width:${colW(c)}px">`;
+    if (rightSpacer) cg += `<col style="width:${colLeft(state.viewCols) - colLeft(c1)}px">`;
     tableCols.innerHTML = cg;
-    dataTable.style.width = GUTTER_W + state.viewCols * COL_W + "px";
+    dataTable.style.width = GUTTER_W + colLeft(state.viewCols) + "px";
 
     // Baris huruf kolom (A, B, C...). Corner di kiri atas = pilih semua.
     let head = `<th class="row-gutter corner" data-corner="1"></th>`;
@@ -479,7 +530,7 @@
       state.viewRows = Math.min(MAX_ROWS, state.viewRows + GROW_ROWS);
       changed = true;
     }
-    const needW = GUTTER_W + state.viewCols * COL_W;
+    const needW = GUTTER_W + colLeft(state.viewCols);
     if (tableWrap.scrollLeft + vw >= needW - 2 * COL_W && state.viewCols < MAX_COLS) {
       state.viewCols = Math.min(MAX_COLS, state.viewCols + GROW_COLS);
       changed = true;
@@ -504,7 +555,7 @@
     state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, r + PAD_ROWS));
     state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, c + PAD_COLS));
     let sL = tableWrap.scrollLeft, sT = tableWrap.scrollTop;
-    const x0 = c * COL_W, x1 = x0 + COL_W, y0 = r * ROW_H, y1 = y0 + ROW_H;
+    const x0 = colLeft(c), x1 = x0 + colW(c), y0 = r * ROW_H, y1 = y0 + ROW_H;
     if (x0 < sL) sL = x0;
     else if (x1 > sL + vw - GUTTER_W) sL = x1 - (vw - GUTTER_W);
     if (y0 < sT) sT = y0;
