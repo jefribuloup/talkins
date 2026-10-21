@@ -172,12 +172,12 @@ def delete_file(session_id, file_id):
 # ---------- Sheets (original vs working copy) ----------
 
 def save_sheet(file_id, sheet_name, records, columns, formula_columns=None, formula_cells=None,
-               column_letters=None, header_row=1):
+               column_letters=None):
     """Dipanggil sekali saat upload: original == working di awal.
 
-    column_letters: {nama_kolom: huruf kolom di sheet ASLI} -> dipakai header tabel (A, B, C...).
-    original_meta menyimpan snapshot metadata kolom saat upload supaya 'Reset ke asli'
-    ikut mengembalikan daftar kolom, info rumus, dan huruf kolom (bukan hanya datanya)."""
+    Data disimpan sebagai grid mentah tanpa header: kolom = huruf Excel (A, B, ...), baris 1
+    = baris 1 sheet asli. original_meta menyimpan snapshot metadata kolom saat upload supaya
+    'Reset ke asli' ikut mengembalikan daftar kolom & info rumus (bukan hanya datanya)."""
     formula_columns = formula_columns or {}
     formula_cells = formula_cells or {}
     column_letters = column_letters or {}
@@ -186,7 +186,6 @@ def save_sheet(file_id, sheet_name, records, columns, formula_columns=None, form
         "formula_columns": formula_columns,
         "formula_cells": formula_cells,
         "column_letters": column_letters,
-        "header_row": header_row,
     }
     conn = get_conn()
     cur = conn.cursor()
@@ -284,23 +283,19 @@ def set_row_order_dirty(file_id, sheet_name, dirty):
     conn.close()
 
 
-def get_header_row(file_id, sheet_name):
-    """Nomor baris header di sheet ASLI (1-based). Dipakai supaya nomor baris di tabel
-    sama dengan Excel/Spreadsheet (header = baris 1 -> data mulai dari baris 2).
-    File yang diunggah sebelum fitur ini tidak punya nilainya -> default 1."""
+def get_sheet_head(file_id, sheet_name, n=3):
+    """n baris pertama working_data saja (murah, tanpa memuat seluruh sheet)."""
     conn = get_conn()
     cur = conn.cursor()
+    exprs = ", ".join(f"working_data->{i}" for i in range(int(n)))
     cur.execute(
-        "SELECT original_meta->>'header_row' FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        f"SELECT {exprs} FROM sheets WHERE file_id=%s AND sheet_name=%s",
         (file_id, sheet_name),
     )
     row = cur.fetchone()
     cur.close()
     conn.close()
-    try:
-        return max(1, int(row[0])) if row and row[0] else 1
-    except (TypeError, ValueError):
-        return 1
+    return [r for r in (row or []) if r is not None]
 
 
 def get_formula_info(file_id, sheet_name):
