@@ -57,57 +57,28 @@ def records_to_df(records, columns):
     return pd.DataFrame(records, columns=columns)
 
 
-# ---------- Auto-clean file kompleks ----------
+# ---------- Grid mentah (tanpa header) ----------
 
-def _detect_header_row(raw: pd.DataFrame, max_scan=10):
-    """Cari baris yang paling mungkin jadi header (paling sedikit sel kosong,
-    banyak sel berupa teks unik) — dipakai untuk file dgn baris judul/logo di atas tabel."""
-    best_row, best_score = 0, -1
-    for i in range(min(max_scan, len(raw))):
-        row = raw.iloc[i]
-        non_null = row.notna().sum()
-        text_like = sum(isinstance(v, str) for v in row if pd.notna(v))
-        score = non_null + text_like
-        if score > best_score:
-            best_score, best_row = score, i
-    return best_row
+def _build_grid(raw: pd.DataFrame):
+    """Ubah dataframe mentah (dibaca dgn header=None) jadi grid apa adanya.
 
-
-def _clean_dataframe(raw: pd.DataFrame):
-    """Bersihkan dataframe mentah jadi tabel siap pakai.
-    Selain dataframe bersih, kembalikan juga peta posisi ASLI (di sheet Excel
-    sebelum dibersihkan) untuk tiap kolom & baris yang selamat -> dipakai nanti
-    untuk mencocokkan balik ke openpyxl saat deteksi kolom rumus/formula."""
-    raw = raw.dropna(how="all").dropna(axis=1, how="all")
+    TIDAK ada baris/kolom yang diperlakukan sebagai header: semua baris & kolom setara.
+    Posisi dipertahankan persis seperti di Excel: baris 0 = baris 1 sheet, kolom 0 = kolom A,
+    termasuk baris/kolom kosong di depan dan di tengah. Hanya baris/kolom kosong di
+    UJUNG (setelah data terakhir) yang dipangkas. Kolom diberi nama huruf (A, B, ..., AA).
+    Return None kalau sheet sama sekali kosong."""
     if raw.empty:
-        return raw, {}, [], 1
-    header_row = _detect_header_row(raw)
-    # raw.index masih posisi baris ASLI (0-based) di sheet -> +1 = nomor baris seperti di Excel
-    header_sheet_row = int(raw.index[header_row]) + 1
-    header = raw.iloc[header_row]
-    df = raw.iloc[header_row + 1:].copy()
-    cols = []
-    seen = {}
-    for i, c in enumerate(header):
-        name = str(c).strip() if pd.notna(c) else f"kolom_{i+1}"
-        if name in seen:
-            seen[name] += 1
-            name = f"{name}_{seen[name]}"
-        else:
-            seen[name] = 0
-        cols.append(name)
-
-    # raw.columns masih berupa posisi kolom ASLI (0-based) krn raw_df dibaca
-    # dengan header=None, jadi belum pernah di-reindex sebelum titik ini.
-    col_origin = dict(zip(cols, raw.columns.tolist()))
-
-    df.columns = cols
-    df = df.dropna(how="all")
-    # df.index di titik ini masih posisi baris ASLI (0-based) di raw_df -> sama
-    # dengan posisi baris di sheet Excel aslinya (baris pertama sheet = index 0).
-    row_origin = df.index.tolist()
-    df = df.reset_index(drop=True)
-    return df, col_origin, row_origin, header_sheet_row
+        return None
+    mask = raw.notna().to_numpy()
+    rows_any = mask.any(axis=1)
+    if not rows_any.any():
+        return None
+    cols_any = mask.any(axis=0)
+    last_r = int(np.nonzero(rows_any)[0][-1])
+    last_c = int(np.nonzero(cols_any)[0][-1])
+    grid = raw.iloc[: last_r + 1, : last_c + 1].copy()
+    grid.columns = [_idx_to_letters(i) for i in range(grid.shape[1])]
+    return grid.reset_index(drop=True)
 
 
 # ---------- Deteksi kolom rumus/formula bawaan ----------
@@ -300,20 +271,20 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
 
     sheet_names = []
     for sheet_name in xls.sheet_names:
-        raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
-        clean_df, col_origin, row_origin, header_sheet_row = _clean_dataframe(raw_df)
-        if clean_df.empty:
+        # dtype=object: nilai dibaca apa adanya (angka tetap angka, teks tetap teks)
+        raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=object)
+        grid = _build_grid(raw_df)
+        if grid is None:
             continue
-        columns = list(clean_df.columns.astype(str))
-        records = df_to_records(clean_df)
+        columns = list(grid.columns)  # ["A", "B", ...] = huruf kolom Excel asli
+        records = df_to_records(grid)
+        # Grid = sheet asli (tanpa pemangkasan di depan) -> posisi kolom/baris identik dgn Excel
+        col_origin = {name: i for i, name in enumerate(columns)}
+        row_origin = list(range(len(records)))
         formula_columns, formula_cells = _detect_formulas(
             raw_bytes, filename, sheet_name, columns, col_origin, row_origin
         )
-        # Huruf kolom di sheet ASLI (bukan urutan setelah dibersihkan) supaya header tabel
-        # (A, B, C...) cocok dengan referensi di rumus seperti =B4*C4.
-        column_letters = {c: _idx_to_letters(col_origin[c]) for c in columns if c in col_origin}
-        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells,
-                      column_letters, header_row=header_sheet_row)
+        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -335,45 +306,37 @@ def get_sheet_list(file_id):
     return {"sheets": db.list_sheet_names(file_id)}
 
 
-def preview_sheet(file_id, sheet_name, page=1):
+MAX_ROWS_PER_REQUEST = 500
+
+
+def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=True):
+    """Kirim potongan baris [row_start, row_start+row_count) dari grid (tanpa header).
+
+    Frontend memuat grid per blok saat user scroll. with_meta=True menambahkan info
+    ringkas sheet (jumlah baris/kolom, info rumus) -> cukup diminta sekali per sheet."""
     records = db.get_sheet(file_id, sheet_name, version="working")
     if records is None:
         raise ValueError("Sheet tidak ditemukan")
-    conn_cols = _get_columns(file_id, sheet_name)
     total_rows = len(records)
-    total_pages = max(1, math.ceil(total_rows / PAGE_SIZE))
-    page = max(1, min(page, total_pages))
-    start = (page - 1) * PAGE_SIZE
-    chunk = records[start:start + PAGE_SIZE]
-
-    formula_columns, formula_cells_all, row_order_dirty, column_letters = db.get_formula_info(
-        file_id, sheet_name
-    )
-    header_row = db.get_header_row(file_id, sheet_name)
-
-    # Peta per-sel hanya valid kalau urutan baris belum berubah sejak ingest.
-    # Kirim hanya potongan untuk halaman ini, dgn key relatif halaman (0..len(chunk)-1).
-    formula_cells_page = {}
-    if not row_order_dirty:
-        for i in range(len(chunk)):
-            row_map = formula_cells_all.get(str(start + i))
-            if row_map:
-                formula_cells_page[str(i)] = row_map
-
-    return {
-        "columns": conn_cols,
-        "rows": chunk,
-        "page": page,
-        "page_size": PAGE_SIZE,
-        "total_pages": total_pages,
-        "total_rows": total_rows,
-        "formula_columns": formula_columns,
-        "formula_cells": formula_cells_page,
-        "row_order_dirty": row_order_dirty,
-        "column_letters": column_letters,
-        # nomor baris header di sheet asli (1-based); baris data pertama = header_row + 1
-        "header_row": header_row,
+    row_start = max(0, min(int(row_start), total_rows))
+    row_count = max(1, min(int(row_count), MAX_ROWS_PER_REQUEST))
+    out = {
+        "row_start": row_start,
+        "rows": records[row_start:row_start + row_count],
     }
+    if with_meta:
+        columns = _get_columns(file_id, sheet_name)
+        formula_columns, formula_cells, row_order_dirty, _ = db.get_formula_info(file_id, sheet_name)
+        out.update({
+            "columns": columns,
+            "total_rows": total_rows,
+            "total_cols": len(columns),
+            "formula_columns": formula_columns,
+            # peta rumus per sel (sparse, hanya baris yg discan saat ingest) -> key = indeks baris
+            "formula_cells": {} if row_order_dirty else formula_cells,
+            "row_order_dirty": row_order_dirty,
+        })
+    return out
 
 
 def _get_columns(file_id, sheet_name):
@@ -391,12 +354,31 @@ def _get_columns(file_id, sheet_name):
 
 # ---------- Manipulasi working copy ----------
 
+def _letters_list(n):
+    return [_idx_to_letters(i) for i in range(n)]
+
+
+def _norm_col(c):
+    return str(c).strip().upper()
+
+
 def apply_operation(file_id, op):
     sheet_name = op.get("sheet")
     action = op.get("action")
     columns = _get_columns(file_id, sheet_name)
     records = db.get_sheet(file_id, sheet_name, version="working")
     df = records_to_df(records, columns)
+
+    # Kolom dirujuk dengan huruf Excel (A, B, ...), tidak ada "nama kolom"/header.
+    if op.get("column") is not None:
+        op["column"] = _norm_col(op["column"])
+    if op.get("columns") is not None:
+        op["columns"] = [_norm_col(c) for c in op["columns"] if str(c).strip()]
+    for c in ([op["column"]] if op.get("column") else []) + (op.get("columns") or []):
+        if c not in df.columns:
+            raise ValueError(f"Kolom {c} tidak ada di sheet ini")
+
+    rename_map = None  # {huruf_lama: huruf_baru}, hanya diisi saat kolom dihapus
 
     if action == "drop_na":
         cols = op.get("columns") or None
@@ -411,11 +393,11 @@ def apply_operation(file_id, op):
         cols = op.get("columns") or None
         df = df.drop_duplicates(subset=cols)
 
-    elif action == "rename_column":
-        df = df.rename(columns={op["from"]: op["to"]})
-
     elif action == "drop_column":
-        df = df.drop(columns=[c for c in op.get("columns", []) if c in df.columns])
+        drop = set(op.get("columns", []))
+        keep = [c for c in df.columns if c not in drop]
+        df = df[keep]
+        rename_map = {old: _idx_to_letters(i) for i, old in enumerate(keep)}
 
     elif action == "filter_rows":
         col, cond, val = op["column"], op["condition"], op["value"]
@@ -445,38 +427,24 @@ def apply_operation(file_id, op):
         raise ValueError(f"Aksi tidak dikenal: {action}")
 
     df = df.reset_index(drop=True)
-    new_columns = list(df.columns.astype(str))
+    # Nama kolom selalu = huruf berurutan dari A (seperti Excel setelah kolom dihapus)
+    df.columns = _letters_list(len(df.columns))
+    new_columns = list(df.columns)
     new_records = df_to_records(df)
     db.update_working_data(file_id, sheet_name, new_records, new_columns)
 
-    # Aksi yang mengubah urutan/jumlah baris -> peta rumus per-sel (berbasis posisi
-    # baris saat ingest) tidak akurat lagi sampai user reset ke data asli.
-    if action in ("drop_na", "drop_duplicates", "filter_rows", "sort"):
+    # Aksi yang mengubah urutan/jumlah baris atau menggeser kolom -> peta rumus per-sel
+    # (berbasis posisi saat ingest) tidak akurat lagi sampai user reset ke data asli.
+    if action in ("drop_na", "drop_duplicates", "filter_rows", "sort", "drop_column"):
         db.set_row_order_dirty(file_id, sheet_name, True)
 
-    # Sinkronkan nama kolom di info rumus kalau kolom di-rename/dihapus.
-    if action in ("rename_column", "drop_column"):
+    # Kolom dihapus -> huruf kolom di info rumus ikut bergeser.
+    if rename_map is not None:
         formula_columns = db.get_formula_columns(file_id, sheet_name)
-        formula_cells = db.get_formula_cells(file_id, sheet_name)
-        column_letters = db.get_column_letters(file_id, sheet_name)
-        if action == "rename_column":
-            old, new = op["from"], op["to"]
-            if old in formula_columns:
-                formula_columns[new] = formula_columns.pop(old)
-            if old in column_letters:
-                column_letters[new] = column_letters.pop(old)
-            for row_map in formula_cells.values():
-                if old in row_map:
-                    row_map[new] = row_map.pop(old)
-        else:
-            for c in op.get("columns", []):
-                formula_columns.pop(c, None)
-                column_letters.pop(c, None)
-                for row_map in formula_cells.values():
-                    row_map.pop(c, None)
-        db.update_formula_columns(file_id, sheet_name, formula_columns)
-        db.update_formula_cells(file_id, sheet_name, formula_cells)
-        db.update_column_letters(file_id, sheet_name, column_letters)
+        db.update_formula_columns(
+            file_id, sheet_name,
+            {rename_map[k]: v for k, v in formula_columns.items() if k in rename_map},
+        )
 
     return {
         "columns": new_columns,
@@ -500,7 +468,8 @@ def export_working_copy(file_id):
             columns = _get_columns(file_id, sheet_name)
             records = db.get_sheet(file_id, sheet_name, version="working")
             df = records_to_df(records, columns)
-            df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+            # header=False: grid ditulis apa adanya (baris 1 = baris 1), tanpa baris huruf A/B/C
+            df.to_excel(writer, sheet_name=sheet_name[:31], index=False, header=False)
     output.seek(0)
     download_name = f"edited_{file_meta['filename']}"
     return send_file(
