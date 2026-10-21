@@ -404,6 +404,29 @@ def get_recap(file_id, sheet_name, lang="id"):
 
 
 MAX_ROWS_PER_REQUEST = 500
+MAX_COL_CHARS = 60
+
+
+def _col_chars(records, ncols):
+    """Panjang teks terpanjang tiap kolom (jumlah karakter tampilan, maks MAX_COL_CHARS).
+    0 = kolom tanpa isi -> frontend memakai lebar standar. Dipakai untuk lebar kolom dinamis."""
+    widths = [0] * ncols
+    for row in records:
+        for j, v in enumerate(row[:ncols]):
+            if v is None:
+                continue
+            if isinstance(v, str):
+                n = len(v)
+            elif isinstance(v, float):
+                if v != v:
+                    continue
+                n = len(str(int(v))) if v == int(v) else len(str(v))
+            else:
+                n = len(str(v))
+            if n > widths[j]:
+                widths[j] = min(n, MAX_COL_CHARS)
+    return widths
+
 
 
 def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=True):
@@ -430,6 +453,7 @@ def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=Tru
             "columns": columns,
             "total_rows": total_rows,
             "total_cols": len(columns),
+            "col_chars": _col_chars(records, len(columns)),
             "formula_columns": formula_columns,
             # peta rumus per sel (sparse, hanya baris yg discan saat ingest) -> key = indeks baris
             "formula_cells": {} if row_order_dirty else formula_cells,
