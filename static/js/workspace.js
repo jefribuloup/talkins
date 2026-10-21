@@ -225,12 +225,21 @@
     return d && d.page === 1 ? -1 : 0;
   }
   // Nama kolom hasil deteksi = isi sel baris header. Nama otomatis (kolom_N) berarti sel kosong.
+  // Server menyimpan nama kolom sebagai teks (str()), padahal sel header aslinya bisa berupa
+  // angka: 1 jadi "1.0", 0,72 jadi "0.72". Header yang polos berupa angka dikembalikan ke angka
+  // (tampil "1", dihitung sebagai angka), seperti sel itu di Excel. Angka berawalan nol ("007")
+  // dibiarkan sebagai teks karena hampir pasti kode, bukan bilangan.
+  const NUMERIC_HEADER = /^-?(0|[1-9]\d*)(\.\d+)?$/;
   function headerCellValue(d, c) {
     const name = d.columns[c];
-    return /^kolom_\d+$/.test(name) ? "" : name;
+    if (typeof name !== "string") return name;
+    if (/^kolom_\d+$/.test(name)) return "";
+    return name.replace(/^(-?\d+)\.0+$/, "$1"); // "1.0" -> "1"
   }
   function cellValue(d, r, c) {
-    return r < 0 ? headerCellValue(d, c) : d.rows[r][c];
+    if (r >= 0) return d.rows[r][c];
+    const h = headerCellValue(d, c);
+    return typeof h === "string" && NUMERIC_HEADER.test(h) ? Number(h) : h;
   }
 
   // 0 -> A, 25 -> Z, 26 -> AA. Dipakai sebagai cadangan kalau sheet belum punya huruf asli
@@ -641,7 +650,7 @@
     if (token !== stats.token || !box.isConnected) return;
     full.forEach((c) => {
       mergeStats(local, stats.cache.get(d.columns[c]));
-      if (isFilled(headerCellValue(d, c))) local.count++; // sel judul kolom ikut terhitung, seperti di Excel
+      addCell(local, cellValue(d, -1, c)); // sel judul kolom ikut terhitung (angka/teks), seperti di Excel
     });
     renderStats(box, local, format(t("workspace.stats.fullNote"), { n: d.total_rows }));
   }
