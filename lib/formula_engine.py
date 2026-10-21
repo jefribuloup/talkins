@@ -138,16 +138,12 @@ def _is_blank(v):
 
 
 def _to_num(v):
+    """Hanya angka asli yang dihitung sebagai angka, seperti di Excel: teks "100" bukan angka.
+    (Aplikasi punya aksi cast_numeric untuk mengubah kolom teks-angka jadi angka sungguhan.)"""
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
         return float(v) if math.isfinite(v) else None
-    if isinstance(v, str):
-        try:
-            x = float(v.strip())
-        except ValueError:
-            return None
-        return x if math.isfinite(x) else None
     return None
 
 
@@ -460,9 +456,55 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
     }
 
 
+def column_stats(records, col_indexes):
+    """Statistik per kolom atas SEMUA baris: {index: {count, numeric, sum, min, max}}.
+
+    count = sel tidak kosong (teks ikut), numeric = sel berisi angka asli. Sama dengan
+    Count / Numerical Count / Sum / Min / Max di status bar Excel.
+    """
+    out = {}
+    for j in col_indexes:
+        count = 0
+        nums = []
+        for row in records:
+            v = row[j] if j < len(row) else None
+            if _is_blank(v):
+                continue
+            count += 1
+            x = _to_num(v)
+            if x is not None:
+                nums.append(x)
+        out[j] = {
+            "count": count,
+            "numeric": len(nums),
+            "sum": math.fsum(nums) if nums else 0,
+            "min": min(nums) if nums else None,
+            "max": max(nums) if nums else None,
+        }
+    return out
+
+
 def register_routes(app):
-    """Daftarkan POST /api/formula-suggest ke aplikasi Flask."""
+    """Daftarkan POST /api/formula-suggest dan POST /api/files/<id>/column-stats ke Flask."""
     from flask import jsonify, request
+
+    @app.route("/api/files/<file_id>/column-stats", methods=["POST"])
+    def formula_column_stats(file_id):
+        from lib import db, excel_engine  # impor di sini agar modul ini tetap bisa dites tanpa database
+        data = request.get_json(silent=True) or {}
+        sheet, names = data.get("sheet"), data.get("columns")
+        if (not isinstance(sheet, str) or not isinstance(names, list) or not names
+                or len(names) > 200 or not all(isinstance(n, str) for n in names)):
+            return jsonify({"error": "sheet dan columns (daftar nama kolom) wajib diisi."}), 400
+        records = db.get_sheet(file_id, sheet, version="working")
+        if records is None:
+            return jsonify({"error": "Sheet tidak ditemukan."}), 404
+        position = {name: i for i, name in enumerate(excel_engine._get_columns(file_id, sheet))}
+        missing = [n for n in names if n not in position]
+        if missing:
+            return jsonify({"error": "Kolom tidak ditemukan: " + ", ".join(missing[:5])}), 400
+        stats = column_stats(records, [position[n] for n in names])
+        return jsonify({"rows": len(records), "stats": {n: stats[position[n]] for n in names}})
 
     @app.route("/api/formula-suggest", methods=["POST"])
     def formula_suggest():
