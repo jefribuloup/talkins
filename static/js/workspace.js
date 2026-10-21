@@ -107,6 +107,7 @@
     selectedCells: new Set(),  // key "r,c" (r = baris di halaman ini, c = index kolom)
     selectionAnchor: null,     // {r, c} untuk Shift+klik rentang
     precedents: new Set(),     // sel "bahan rumus" yang lagi ditandai
+    fullCols: new Set(),       // kolom yang dipilih lewat judul kolom (dihitung dari semua halaman)
   };
 
   // ---------- Sheet tabs ----------
@@ -159,6 +160,8 @@
     state.currentPreview = data;
     state.selectedCells.clear();
     state.precedents.clear();
+    state.fullCols.clear();
+    stats.cache.clear();
     state.selectionAnchor = null;
 
     const formulaCols = data.formula_columns || {};
@@ -254,7 +257,7 @@
     });
   }
 
-  function applySelection(cellKeys, e, { anchor, single }) {
+  function applySelection(cellKeys, e, { anchor, single, fullCol }) {
     if (e.shiftKey && single && state.selectionAnchor) {
       // Shift+klik: seluruh persegi panjang dari anchor ke sel yang diklik
       const a = state.selectionAnchor;
@@ -264,15 +267,22 @@
           state.selectedCells.add(`${r},${c}`);
         }
       }
+      state.fullCols.clear();
     } else if (e.ctrlKey || e.metaKey) {
       // Ctrl/Cmd+klik: tambah/lepas dari pilihan yang ada
       const allIn = cellKeys.every((k) => state.selectedCells.has(k));
       cellKeys.forEach((k) => (allIn ? state.selectedCells.delete(k) : state.selectedCells.add(k)));
       state.selectionAnchor = anchor;
+      if (fullCol !== undefined) {
+        if (allIn) state.fullCols.delete(fullCol);
+        else state.fullCols.add(fullCol);
+      }
     } else {
       state.selectedCells.clear();
       cellKeys.forEach((k) => state.selectedCells.add(k));
       state.selectionAnchor = anchor;
+      state.fullCols.clear();
+      if (fullCol !== undefined) state.fullCols.add(fullCol);
     }
     state.precedents.clear();
     renderSelectionHighlight();
@@ -283,6 +293,7 @@
   function clearSelection() {
     state.selectedCells.clear();
     state.precedents.clear();
+    state.fullCols.clear();
     state.selectionAnchor = null;
     renderSelectionHighlight();
     renderFormulaPanel();
@@ -308,7 +319,7 @@
     const d = state.currentPreview;
     const keys = [];
     for (let r = firstRow(d); r < d.rows.length; r++) keys.push(`${r},${c}`);
-    applySelection(keys, e, { anchor: { r: firstRow(d), c }, single: false });
+    applySelection(keys, e, { anchor: { r: firstRow(d), c }, single: false, fullCol: c });
   };
   tableLetters.addEventListener("click", onHeaderClick);
 
@@ -428,6 +439,7 @@
     const d = state.currentPreview;
     if (!d || !state.selectedCells.size) {
       cancelSuggest();
+      stats.token++;
       formulaPanelEmpty.hidden = false;
       formulaPanelContent.hidden = true;
       formulaPanelContent.innerHTML = "";
@@ -506,9 +518,132 @@
     formulaPanelContent.innerHTML =
       `<div class="fp-summary"><span>${format(t("workspace.formula.selected"), { n: cells.length, f: formulaCount })}</span>` +
       (dirty ? `<span class="fp-dirty-flag">${t("workspace.formula.dirtyFlag")}</span>` : "") +
-      `</div><div class="fs-wrap" id="formulaSuggest"></div>${noFormulaNote}${cards.join("")}${more}`;
+      `</div><div class="fs-stats" id="formulaStats" role="status"></div><div class="fs-wrap" id="formulaSuggest"></div>${noFormulaNote}${cards.join("")}${more}`;
 
+    updateStats();
     scheduleSuggestions();
+  }
+
+  // ---------- Statistik pilihan ala status bar Excel (Rata-rata · Hitung · Jumlah) ----------
+  // Bekerja untuk pilihan bentuk apa pun, termasuk Ctrl+klik acak. Seperti Excel: hanya angka
+  // asli yang dijumlahkan (teks "100" tidak), dan "Hitung" menghitung semua sel yang terisi.
+  // Kolom yang dipilih lewat judul kolomnya dihitung dari SEMUA baris (bukan hanya halaman ini)
+  // lewat /column-stats, sama seperti memilih seluruh kolom di Excel.
+  const stats = { token: 0, cache: new Map() };
+
+  const isFilled = (v) => !(v === null || v === undefined || (typeof v === "string" && v.trim() === ""));
+  const isNum = (v) => typeof v === "number" && Number.isFinite(v);
+  const newStats = () => ({ count: 0, numeric: 0, sum: 0, min: null, max: null });
+
+  function addCell(st, v) {
+    if (!isFilled(v)) return;
+    st.count++;
+    if (!isNum(v)) return;
+    st.numeric++;
+    st.sum += v;
+    if (st.min === null || v < st.min) st.min = v;
+    if (st.max === null || v > st.max) st.max = v;
+  }
+
+  function mergeStats(st, o) {
+    st.count += o.count;
+    st.numeric += o.numeric;
+    st.sum += o.sum;
+    if (o.min !== null && (st.min === null || o.min < st.min)) st.min = o.min;
+    if (o.max !== null && (st.max === null || o.max > st.max)) st.max = o.max;
+  }
+
+  // Kolom "penuh" = semua sel kolom itu di halaman ini masih terpilih (Ctrl+klik satu sel
+  // di dalamnya membuatnya tidak penuh lagi, lalu dihitung per sel).
+  function effectiveFullCols(d) {
+    const out = new Set();
+    state.fullCols.forEach((c) => {
+      let all = d.rows.length > 0;
+      for (let r = firstRow(d); r < d.rows.length && all; r++) all = state.selectedCells.has(`${r},${c}`);
+      if (all) out.add(c);
+    });
+    return out;
+  }
+
+  function fmtStat(n) {
+    const locale = currentLang() === "en" ? "en-US" : "id-ID";
+    return new Intl.NumberFormat(locale, { maximumFractionDigits: 9, useGrouping: false }).format(
+      Object.is(n, -0) ? 0 : n
+    );
+  }
+
+  function renderStats(box, st, note) {
+    if (!st.count) {
+      box.innerHTML = "";
+      return;
+    }
+    const item = (key, val) =>
+      `<span class="fs-stat"><span class="fs-stat-k">${t("workspace.stats." + key)}</span><strong>${val}</strong></span>`;
+    let main = "";
+    if (st.numeric) main += item("average", fmtStat(st.sum / st.numeric));
+    main += item("count", fmtStat(st.count));
+    if (st.numeric) main += item("sum", fmtStat(st.sum));
+    const extra = st.numeric
+      ? item("numCount", fmtStat(st.numeric)) + item("min", fmtStat(st.min)) + item("max", fmtStat(st.max))
+      : "";
+    box.innerHTML =
+      `<div class="fs-stats-box"><div class="fs-stats-main">${main}</div>` +
+      (extra ? `<div class="fs-stats-extra">${extra}</div>` : "") +
+      `</div>` +
+      (note ? `<div class="fp-note">${note}</div>` : "");
+  }
+
+  function localPageStats(d, skip) {
+    const st = newStats();
+    state.selectedCells.forEach((k) => {
+      const [r, c] = k.split(",").map(Number);
+      if (!skip || !skip.has(c)) addCell(st, cellValue(d, r, c));
+    });
+    return st;
+  }
+
+  async function updateStats() {
+    const box = document.getElementById("formulaStats");
+    const d = state.currentPreview;
+    const token = ++stats.token;
+    if (!box || !d) return;
+    // Seperti Excel: satu sel saja tidak memunculkan statistik (nilainya sudah tampil di kartu sel).
+    if (state.selectedCells.size < 2) {
+      box.innerHTML = "";
+      return;
+    }
+    const full = d.total_pages > 1 ? effectiveFullCols(d) : new Set();
+    const local = localPageStats(d, full);
+    if (!full.size) {
+      renderStats(box, local);
+      return;
+    }
+
+    const missing = [...full].map((c) => d.columns[c]).filter((n) => !stats.cache.has(n));
+    if (missing.length) {
+      box.innerHTML = `<div class="fp-note">${t("workspace.stats.loading")}</div>`;
+      try {
+        const res = await fetch(api("/column-stats"), {
+          method: "POST",
+          noLoader: true,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sheet: state.sheet, columns: missing }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        missing.forEach((n) => stats.cache.set(n, data.stats[n]));
+      } catch (err) {
+        if (token !== stats.token || !box.isConnected) return;
+        renderStats(box, localPageStats(d, null), t("workspace.stats.error"));
+        return;
+      }
+    }
+    if (token !== stats.token || !box.isConnected) return;
+    full.forEach((c) => {
+      mergeStats(local, stats.cache.get(d.columns[c]));
+      if (isFilled(headerCellValue(d, c))) local.count++; // sel judul kolom ikut terhitung, seperti di Excel
+    });
+    renderStats(box, local, format(t("workspace.stats.fullNote"), { n: d.total_rows }));
   }
 
   // ---------- Saran rumus untuk sel yang dipilih (bagian atas tab Rumus) ----------
