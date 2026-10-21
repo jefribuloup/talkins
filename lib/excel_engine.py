@@ -5,6 +5,7 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
 """
 import io
 import re
+import json
 import bisect
 import uuid
 import math
@@ -306,6 +307,89 @@ def get_sheet_list(file_id):
     return {"sheets": db.list_sheet_names(file_id)}
 
 
+# ---------- Pemulihan file lama (diunggah sebelum grid tanpa header) ----------
+# Di file lama, baris header disimpan sebagai NAMA kolom (bukan data), jadi tidak ikut tampil.
+# Saat sheet dibuka, sheet lama otomatis dikonversi: header dikembalikan jadi baris biasa di
+# posisi aslinya. Penanda file lama = original_meta punya kunci "header_row".
+
+_LEGACY_AUTO_NAME = re.compile(r"^kolom_\d+$")
+_NUMERIC_TEXT = re.compile(r"^-?(0|[1-9]\d*)(\.\d+)?$")
+
+
+def _legacy_header_value(name):
+    if not isinstance(name, str) or _LEGACY_AUTO_NAME.match(name):
+        return None
+    n = re.sub(r"^(-?\d+)\.0+$", r"\1", name)
+    if _NUMERIC_TEXT.match(n):
+        return float(n) if "." in n else int(n)
+    return name
+
+
+def _legacy_to_grid(records, columns, letters, header_row):
+    """records/columns versi lama -> (grid baris-baris, daftar huruf kolom, peta nama->huruf)."""
+    idx = {}
+    for i, c in enumerate(columns):
+        idx[c] = _letters_to_idx(letters[c]) if c in letters else i
+    width = (max(idx.values()) + 1) if idx else 0
+    header_pos = max(0, int(header_row or 1) - 1)
+
+    def blank():
+        return [None] * width
+
+    grid = [blank() for _ in range(header_pos)]
+    head = blank()
+    for c in columns:
+        head[idx[c]] = _legacy_header_value(c)
+    grid.append(head)
+    for rec in records:
+        row = blank()
+        for c, v in zip(columns, rec):
+            row[idx[c]] = v
+        grid.append(row)
+    return grid, _letters_list(width), {c: _idx_to_letters(i) for c, i in idx.items()}
+
+
+def _migrate_legacy_sheet(file_id, sheet_name):
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT original_data, working_data, columns, original_meta, formula_columns, column_letters "
+        "FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    if not row or "header_row" not in (row[3] or {}):
+        cur.close()
+        conn.close()
+        return
+    orig_data, work_data, work_cols, meta, work_fcols, work_letters = row
+    header_row = meta.get("header_row", 1)
+    o_grid, o_cols, o_map = _legacy_to_grid(
+        orig_data, meta.get("columns") or work_cols, meta.get("column_letters") or {}, header_row)
+    w_grid, w_cols, w_map = _legacy_to_grid(
+        work_data, work_cols, work_letters or {}, header_row)
+
+    def remap(fc, mapping):
+        return {mapping[k]: v for k, v in (fc or {}).items() if k in mapping}
+
+    new_meta = {
+        "columns": o_cols,
+        "formula_columns": remap(meta.get("formula_columns"), o_map),
+        "formula_cells": {},  # peta rumus per-sel versi lama tidak bisa dipetakan -> upload ulang untuk detailnya
+        "column_letters": {},
+    }
+    cur.execute(
+        "UPDATE sheets SET original_data=%s, working_data=%s, columns=%s, formula_columns=%s, "
+        "formula_cells='{}', row_order_dirty=false, column_letters='{}', original_meta=%s "
+        "WHERE file_id=%s AND sheet_name=%s",
+        (json.dumps(o_grid), json.dumps(w_grid), json.dumps(w_cols),
+         json.dumps(remap(work_fcols, w_map)), json.dumps(new_meta), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 MAX_ROWS_PER_REQUEST = 500
 
 
@@ -314,6 +398,8 @@ def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=Tru
 
     Frontend memuat grid per blok saat user scroll. with_meta=True menambahkan info
     ringkas sheet (jumlah baris/kolom, info rumus) -> cukup diminta sekali per sheet."""
+    if with_meta:
+        _migrate_legacy_sheet(file_id, sheet_name)
     records = db.get_sheet(file_id, sheet_name, version="working")
     if records is None:
         raise ValueError("Sheet tidak ditemukan")
