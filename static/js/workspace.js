@@ -12,8 +12,6 @@
   const formulaPanelEmpty = document.getElementById("formulaPanelEmpty");
   const formulaPanelContent = document.getElementById("formulaPanelContent");
   const pagerInfo = document.getElementById("pagerInfo");
-  const pagePrev = document.getElementById("pagePrev");
-  const pageNext = document.getElementById("pageNext");
 
   const opAction = document.getElementById("opAction");
   const opParams = document.getElementById("opParams");
@@ -99,16 +97,43 @@
     return html.join("") || "<p></p>";
   }
 
+  // ---------- Grid gaya Excel ----------
+  // Tidak ada baris/kolom yang jadi header: semua sel setara. Baris = 1, 2, 3...; kolom = A, B, C...
+  // Tabel dirender "virtual": hanya baris/kolom yang terlihat (+ sedikit cadangan) yang jadi DOM.
+  // Area kosong di luar data ditampilkan seperti Excel, dan bertambah sendiri saat user scroll
+  // mendekati tepi bawah/kanan.
+  const ROW_H = 26;          // tinggi tiap baris (px)
+  const COL_W = 96;          // lebar tiap kolom (px)
+  const GUTTER_W = 52;       // lebar kolom nomor baris
+  const HEAD_H = 26;         // tinggi baris huruf kolom
+  const MAX_ROWS = 1048576;  // batas Excel
+  const MAX_COLS = 16384;    // batas Excel (kolom XFD)
+  const MIN_ROWS = 30;       // minimal baris yang tampil walau data sedikit
+  const MIN_COLS = 15;       // minimal kolom yang tampil walau data sedikit
+  const PAD_ROWS = 10;       // baris kosong ekstra setelah data terakhir
+  const PAD_COLS = 3;        // kolom kosong ekstra setelah data terakhir
+  const GROW_ROWS = 50;      // baris kosong yang ditambah tiap user scroll ke tepi bawah
+  const GROW_COLS = 10;      // kolom kosong yang ditambah tiap user scroll ke tepi kanan
+  const BLOCK = 200;         // jumlah baris data per permintaan ke server
+  const OVERSCAN_ROWS = 8;
+  const OVERSCAN_COLS = 2;
+
   const state = {
     sheet: null,
-    page: 1,
-    totalPages: 1,
-    currentPreview: null,      // respons /preview terakhir (dipakai tab Rumus)
-    selectedCells: new Set(),  // key "r,c" (r = baris di halaman ini, c = index kolom)
-    selectionAnchor: null,     // {r, c} untuk Shift+klik rentang
-    precedents: new Set(),     // sel "bahan rumus" yang lagi ditandai
-    fullCols: new Set(),       // kolom yang dipilih lewat judul kolom (dihitung dari semua halaman)
+    gen: 0,                    // naik tiap loadPreview -> respons lama dibuang
+    meta: null,                // {columns,total_rows,total_cols,formula_columns,formula_cells,row_order_dirty}
+    blocks: new Map(),         // indeks blok -> array baris
+    loading: new Map(),        // indeks blok -> Promise (sedang dimuat)
+    failed: new Set(),         // blok yang gagal dimuat (tidak diulang sampai sheet dimuat ulang)
+    viewRows: 0,               // jumlah baris yang sedang ditampilkan (data + kosong)
+    viewCols: 0,
+    sel: { rects: [], anchor: null }, // pilihan = daftar persegi panjang {r1,c1,r2,c2} (0-based, inklusif)
+    precedents: new Set(),     // sel "bahan rumus" yang lagi ditandai: key "r,c"
+    lastWin: null,
   };
+
+  const dataTable = document.getElementById("dataTable");
+  const tableCols = document.getElementById("tableCols");
 
   // ---------- Sheet tabs ----------
 
@@ -128,12 +153,9 @@
 
   function selectSheet(name) {
     state.sheet = name;
-    state.page = 1;
     [...sheetTabs.children].forEach((el) => el.classList.toggle("active", el.textContent === name));
     loadPreview();
   }
-
-  // ---------- Tabel + pager ----------
 
   // ---------- Tab kanan: Chat | Rumus ----------
 
@@ -151,202 +173,375 @@
     if (btn) setPanelTab(btn.dataset.tab);
   });
 
-  // ---------- Tabel + pemilihan sel (gaya Excel) ----------
+  // ---------- Huruf kolom ----------
 
-  async function loadPreview() {
-    const res = await fetch(api(`/preview?sheet=${encodeURIComponent(state.sheet)}&page=${state.page}`));
-    const data = await res.json();
-    state.totalPages = data.total_pages;
-    state.currentPreview = data;
-    state.selectedCells.clear();
-    state.precedents.clear();
-    state.fullCols.clear();
-    stats.cache.clear();
-    state.selectionAnchor = null;
-
-    const formulaCols = data.formula_columns || {};
-    const offset = (data.page - 1) * data.page_size;
-
-    // Header cuma satu baris: huruf kolom A, B, C... (huruf di sheet ASLI, jadi cocok dgn rumus
-    // seperti =B4*C4). Nama kolom hasil deteksi TIDAK lagi jadi header terpisah: di spreadsheet
-    // ia hanya sel biasa di baris pertama, jadi ditampilkan sebagai baris data pertama di bawah.
-    // Nama kolom tetap dipakai di balik layar (toolbar, chat, tab Rumus) dan muncul sbg tooltip.
-    // Klik huruf = pilih satu kolom penuh. ƒx = kolom ini berisi rumus.
-    tableLetters.innerHTML =
-      `<th class="row-gutter"></th>` +
-      data.columns
-        .map((c, j) => {
-          const tag = formulaCols[c] ? `<span class="col-formula-tag">ƒx</span>` : "";
-          return `<th class="col-letter" data-col="${j}" title="${escapeHtml(c)}">${colLetter(data, c, j)}${tag}</th>`;
-        })
-        .join("");
-
-    // Baris header asli (mis. baris 1) ditampilkan sbg baris pertama tabel, hanya di halaman 1.
-    // Kolom yg namanya dibuat otomatis (kolom_N) berarti selnya kosong di sheet asli.
-    const headerRowHtml =
-      data.page === 1
-        ? `<tr class="header-as-row"><td class="row-gutter" data-row="-1">${rowNumber(data, -1)}</td>` +
-          data.columns
-            .map((c, j) => `<td data-row="-1" data-col="${j}">${escapeHtml(headerCellValue(data, j))}</td>`)
-            .join("") +
-          `</tr>`
-        : "";
-
-    // Body: nomor baris (klik = pilih baris penuh) + sel data.
-    tableBody.innerHTML = headerRowHtml + data.rows
-      .map(
-        (row, r) =>
-          `<tr><td class="row-gutter" data-row="${r}">${rowNumber(data, offset + r)}</td>` +
-          row
-            .map((v, j) => `<td data-row="${r}" data-col="${j}">${v === null ? "" : escapeHtml(String(v))}</td>`)
-            .join("") +
-          `</tr>`
-      )
-      .join("");
-
-    renderSelectionHighlight();
-    renderFormulaPanel();
-
-    renderPager(data);
-    pagePrev.disabled = data.page <= 1;
-    pageNext.disabled = data.page >= data.total_pages;
-  }
-
-  // Nomor baris seperti di Excel/Spreadsheet: header = baris pertama (atau baris header asli
-  // kalau ada judul di atasnya), jadi data pertama = header_row + 1 (umumnya 2).
-  // pos = posisi 0-based baris data di tabel (lintas halaman).
-  function rowNumber(d, pos) {
-    return pos + 1 + (d && d.header_row ? d.header_row : 1);
-  }
-
-  // Baris header asli diperlakukan sbg baris ke-1 tabel dengan indeks r = -1 (hanya di halaman 1),
-  // jadi ikut sistem seleksi yang sama dgn sel data: klik, Shift+klik, Ctrl+klik, pilih baris/kolom.
-  function firstRow(d) {
-    return d && d.page === 1 ? -1 : 0;
-  }
-  // Nama kolom hasil deteksi = isi sel baris header. Nama otomatis (kolom_N) berarti sel kosong.
-  // Server menyimpan nama kolom sebagai teks (str()), padahal sel header aslinya bisa berupa
-  // angka: 1 jadi "1.0", 0,72 jadi "0.72". Header yang polos berupa angka dikembalikan ke angka
-  // (tampil "1", dihitung sebagai angka), seperti sel itu di Excel. Angka berawalan nol ("007")
-  // dibiarkan sebagai teks karena hampir pasti kode, bukan bilangan.
-  const NUMERIC_HEADER = /^-?(0|[1-9]\d*)(\.\d+)?$/;
-  function headerCellValue(d, c) {
-    const name = d.columns[c];
-    if (typeof name !== "string") return name;
-    if (/^kolom_\d+$/.test(name)) return "";
-    return name.replace(/^(-?\d+)\.0+$/, "$1"); // "1.0" -> "1"
-  }
-  function cellValue(d, r, c) {
-    if (r >= 0) return d.rows[r][c];
-    const h = headerCellValue(d, c);
-    return typeof h === "string" && NUMERIC_HEADER.test(h) ? Number(h) : h;
-  }
-
-  // 0 -> A, 25 -> Z, 26 -> AA. Dipakai sebagai cadangan kalau sheet belum punya huruf asli
-  // (file yang diunggah sebelum fitur ini) -> huruf berdasarkan urutan kolom yang tampil.
+  // 0 -> A, 25 -> Z, 26 -> AA (sama persis dgn penamaan kolom Excel).
+  const _letterCache = [];
   function idxToLetters(idx) {
+    if (_letterCache[idx]) return _letterCache[idx];
     let n = idx + 1, out = "";
     while (n > 0) {
       const rem = (n - 1) % 26;
       out = String.fromCharCode(65 + rem) + out;
       n = Math.floor((n - 1) / 26);
     }
+    return (_letterCache[idx] = out);
+  }
+
+  // ---------- Memuat data (per blok baris) ----------
+
+  async function loadPreview() {
+    const gen = ++state.gen;
+    let data;
+    try {
+      const res = await fetch(api(`/preview?sheet=${encodeURIComponent(state.sheet)}&row_start=0&row_count=${BLOCK}&meta=1`));
+      data = await res.json();
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+    } catch (err) {
+      if (gen === state.gen) alert(err.message);
+      return;
+    }
+    if (gen !== state.gen) return;
+
+    state.meta = data;
+    state.blocks = new Map([[0, data.rows || []]]);
+    state.loading = new Map();
+    state.failed = new Set();
+    state.sel = { rects: [], anchor: null };
+    state.precedents.clear();
+    stats.cache.clear();
+    state.lastWin = null;
+
+    // Awal: data + sedikit baris/kolom kosong (seperti Excel). Sisanya muncul saat user scroll.
+    state.viewRows = Math.min(MAX_ROWS, Math.max(MIN_ROWS, data.total_rows + PAD_ROWS));
+    state.viewCols = Math.min(MAX_COLS, Math.max(MIN_COLS, data.total_cols + PAD_COLS));
+    tableWrap.scrollTop = 0;
+    tableWrap.scrollLeft = 0;
+
+    renderGrid(true);
+    renderGridInfo();
+    renderFormulaPanel();
+    updateTabBadge();
+  }
+
+  function renderGridInfo() {
+    const d = state.meta;
+    if (!d) return;
+    pagerInfo.textContent = format(t("workspace.grid.info"), { rows: d.total_rows, cols: d.total_cols });
+  }
+
+  function fetchBlock(b) {
+    if (state.loading.has(b)) return state.loading.get(b);
+    const gen = state.gen;
+    const p = fetch(
+      api(`/preview?sheet=${encodeURIComponent(state.sheet)}&row_start=${b * BLOCK}&row_count=${BLOCK}&meta=0`),
+      { noLoader: true }
+    )
+      .then((res) => res.json().then((d) => ({ ok: res.ok, d })))
+      .then(({ ok, d }) => {
+        if (gen !== state.gen) return;
+        if (ok) state.blocks.set(b, d.rows || []);
+        else state.failed.add(b);
+      })
+      .catch(() => { if (gen === state.gen) state.failed.add(b); })
+      .finally(() => { if (gen === state.gen) state.loading.delete(b); });
+    state.loading.set(b, p);
+    return p;
+  }
+
+  // Pastikan blok yang memuat baris r0..r1 sudah ada. Resolve setelah semuanya selesai.
+  function ensureBlocks(r0, r1) {
+    const m = state.meta;
+    if (!m || m.total_rows === 0) return Promise.resolve();
+    const last = Math.min(r1, m.total_rows - 1);
+    const jobs = [];
+    for (let b = Math.floor(Math.max(0, r0) / BLOCK); b <= Math.floor(last / BLOCK); b++) {
+      if (state.blocks.has(b) || state.failed.has(b)) continue;
+      jobs.push(fetchBlock(b));
+    }
+    return Promise.all(jobs);
+  }
+
+  function rowsCached(r0, r1) {
+    for (let b = Math.floor(r0 / BLOCK); b <= Math.floor(r1 / BLOCK); b++) {
+      if (!state.blocks.has(b)) return false;
+    }
+    return true;
+  }
+
+  // Nilai sel (r, c) 0-based. null = kosong / di luar data. undefined = barisnya belum dimuat.
+  function getVal(r, c) {
+    const m = state.meta;
+    if (!m || r < 0 || c < 0 || r >= m.total_rows || c >= m.total_cols) return null;
+    const blk = state.blocks.get(Math.floor(r / BLOCK));
+    if (!blk) return undefined;
+    const row = blk[r % BLOCK];
+    const v = row ? row[c] : null;
+    return v === undefined ? null : v;
+  }
+
+  // ---------- Pilihan sel (daftar persegi panjang) ----------
+
+  const rects = () => state.sel.rects;
+
+  function normRect(r1, c1, r2, c2) {
+    return { r1: Math.min(r1, r2), c1: Math.min(c1, c2), r2: Math.max(r1, r2), c2: Math.max(c1, c2) };
+  }
+
+  // a dikurangi b -> maksimal 4 persegi panjang
+  function subtractRect(a, b) {
+    if (b.r1 > a.r2 || b.r2 < a.r1 || b.c1 > a.c2 || b.c2 < a.c1) return [a];
+    const out = [];
+    if (b.r1 > a.r1) out.push({ r1: a.r1, r2: b.r1 - 1, c1: a.c1, c2: a.c2 });
+    if (b.r2 < a.r2) out.push({ r1: b.r2 + 1, r2: a.r2, c1: a.c1, c2: a.c2 });
+    const mr1 = Math.max(a.r1, b.r1), mr2 = Math.min(a.r2, b.r2);
+    if (b.c1 > a.c1) out.push({ r1: mr1, r2: mr2, c1: a.c1, c2: b.c1 - 1 });
+    if (b.c2 < a.c2) out.push({ r1: mr1, r2: mr2, c1: b.c2 + 1, c2: a.c2 });
     return out;
   }
 
-  function colLetter(d, name, j) {
-    return (d.column_letters && d.column_letters[name]) || idxToLetters(j);
-  }
+  const isSelected = (r, c) => rects().some((x) => r >= x.r1 && r <= x.r2 && c >= x.c1 && c <= x.c2);
+  const rowHasSel = (r) => rects().some((x) => r >= x.r1 && r <= x.r2);
+  const colHasSel = (c) => rects().some((x) => c >= x.c1 && c <= x.c2);
+  const selCount = () => rects().reduce((n, x) => n + (x.r2 - x.r1 + 1) * (x.c2 - x.c1 + 1), 0);
 
-  function renderPager(d) {
-    pagerInfo.textContent = format(t("workspace.pager.info"), {
-      page: d.page,
-      total: d.total_pages,
-      rows: d.total_rows,
-    });
-  }
-
-  function applySelection(cellKeys, e, { anchor, single, fullCol }) {
-    if (e.shiftKey && single && state.selectionAnchor) {
-      // Shift+klik: seluruh persegi panjang dari anchor ke sel yang diklik
-      const a = state.selectionAnchor;
-      state.selectedCells.clear();
-      for (let r = Math.min(a.r, anchor.r); r <= Math.max(a.r, anchor.r); r++) {
-        for (let c = Math.min(a.c, anchor.c); c <= Math.max(a.c, anchor.c); c++) {
-          state.selectedCells.add(`${r},${c}`);
+  // Sel terpilih berurutan baris-demi-baris, maksimal `max` sel (untuk kartu di tab Rumus).
+  function selCells(max) {
+    const out = [];
+    const sorted = [...rects()].sort((a, b) => a.r1 - b.r1 || a.c1 - b.c1);
+    for (const x of sorted) {
+      for (let r = x.r1; r <= x.r2; r++) {
+        for (let c = x.c1; c <= x.c2; c++) {
+          out.push([r, c]);
+          if (out.length >= max) return out;
         }
       }
-      state.fullCols.clear();
+    }
+    return out;
+  }
+
+  function applySelection(rect, e, { anchor, single }) {
+    const S = state.sel;
+    if (e.shiftKey && single && S.anchor) {
+      // Shift+klik: seluruh persegi panjang dari anchor ke sel yang diklik
+      S.rects = [normRect(S.anchor.r, S.anchor.c, anchor.r, anchor.c)];
     } else if (e.ctrlKey || e.metaKey) {
-      // Ctrl/Cmd+klik: tambah/lepas dari pilihan yang ada
-      const allIn = cellKeys.every((k) => state.selectedCells.has(k));
-      cellKeys.forEach((k) => (allIn ? state.selectedCells.delete(k) : state.selectedCells.add(k)));
-      state.selectionAnchor = anchor;
-      if (fullCol !== undefined) {
-        if (allIn) state.fullCols.delete(fullCol);
-        else state.fullCols.add(fullCol);
-      }
+      // Ctrl/Cmd+klik: tambah, atau lepas kalau seluruhnya sudah terpilih
+      let rest = [rect];
+      S.rects.forEach((s) => { rest = rest.flatMap((x) => subtractRect(x, s)); });
+      const covered = rest.length === 0;
+      S.rects = S.rects.flatMap((s) => subtractRect(s, rect));
+      if (!covered) S.rects.push(rect);
+      S.anchor = anchor;
     } else {
-      state.selectedCells.clear();
-      cellKeys.forEach((k) => state.selectedCells.add(k));
-      state.selectionAnchor = anchor;
-      state.fullCols.clear();
-      if (fullCol !== undefined) state.fullCols.add(fullCol);
+      S.rects = [rect];
+      S.anchor = anchor;
     }
     state.precedents.clear();
-    renderSelectionHighlight();
-    renderFormulaPanel();
+    selectionChanged();
     maybeRevealFormulaTab();
   }
 
   function clearSelection() {
-    state.selectedCells.clear();
+    state.sel = { rects: [], anchor: null };
     state.precedents.clear();
-    state.fullCols.clear();
-    state.selectionAnchor = null;
-    renderSelectionHighlight();
-    renderFormulaPanel();
+    selectionChanged();
   }
 
-  // Auto-pindah ke tab Rumus hanya kalau ada sel terpilih yang berada di kolom berumus,
+  function selectionChanged() {
+    renderGrid(true);
+    renderFormulaPanel();
+    updateTabBadge();
+  }
+
+  // Auto-pindah ke tab Rumus hanya kalau ada sel terpilih di kolom berumus,
   // supaya user yang sedang asyik di tab Chat tidak "ditarik" tiap klik sel biasa.
   function maybeRevealFormulaTab() {
-    const d = state.currentPreview;
-    if (!d || !state.selectedCells.size) return;
+    const d = state.meta;
+    if (!d || !selCount()) return;
     const fcols = d.formula_columns || {};
-    const hit = [...state.selectedCells].some((k) => {
-      const [r, c] = k.split(",").map(Number);
-      return r >= 0 && fcols[d.columns[c]];
+    if (!Object.keys(fcols).length) return;
+    const hit = rects().some((x) => {
+      for (let c = x.c1; c <= Math.min(x.c2, x.c1 + 300); c++) if (fcols[idxToLetters(c)]) return true;
+      return false;
     });
     if (hit) setPanelTab("formula");
   }
 
-  const onHeaderClick = (e) => {
+  function updateTabBadge() {
+    const formulaTab = panelTabs.querySelector('[data-tab="formula"]');
+    let badge = formulaTab.querySelector(".panel-tab-count");
+    const n = selCount();
+    if (n) {
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "panel-tab-count";
+        formulaTab.appendChild(badge);
+      }
+      badge.textContent = n;
+    } else if (badge) {
+      badge.remove();
+    }
+  }
+
+  // ---------- Render grid virtual ----------
+
+  function renderGrid(force) {
+    const m = state.meta;
+    if (!m) return;
+    const vw = tableWrap.clientWidth || 800;
+    const vh = tableWrap.clientHeight || 480;
+
+    // Selalu sediakan cukup baris/kolom kosong supaya layar penuh dan tabel bisa di-scroll.
+    state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, Math.ceil((vh - HEAD_H) / ROW_H) + 2));
+    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, Math.ceil((vw - GUTTER_W) / COL_W) + 2));
+
+    const sT = tableWrap.scrollTop, sL = tableWrap.scrollLeft;
+    const r0 = Math.max(0, Math.floor(sT / ROW_H) - OVERSCAN_ROWS);
+    const r1 = Math.min(state.viewRows, Math.ceil((sT + vh) / ROW_H) + OVERSCAN_ROWS);
+    const c0 = Math.max(0, Math.floor(sL / COL_W) - OVERSCAN_COLS);
+    const c1 = Math.min(state.viewCols, Math.ceil((sL + vw) / COL_W) + OVERSCAN_COLS);
+
+    const key = [r0, r1, c0, c1, state.viewRows, state.viewCols].join();
+    if (!force && key === state.lastWin) return;
+    state.lastWin = key;
+
+    const fcols = m.formula_columns || {};
+    const leftSpacer = c0 > 0;
+    const rightSpacer = c1 < state.viewCols;
+    const nCols = 1 + (leftSpacer ? 1 : 0) + (c1 - c0) + (rightSpacer ? 1 : 0);
+
+    // colgroup: lebar tetap -> tata letak tabel stabil walau hanya sebagian kolom yang dirender
+    let cg = `<col style="width:${GUTTER_W}px">`;
+    if (leftSpacer) cg += `<col style="width:${c0 * COL_W}px">`;
+    for (let c = c0; c < c1; c++) cg += `<col style="width:${COL_W}px">`;
+    if (rightSpacer) cg += `<col style="width:${(state.viewCols - c1) * COL_W}px">`;
+    tableCols.innerHTML = cg;
+    dataTable.style.width = GUTTER_W + state.viewCols * COL_W + "px";
+
+    // Baris huruf kolom (A, B, C...). Corner di kiri atas = pilih semua.
+    let head = `<th class="row-gutter corner" data-corner="1"></th>`;
+    if (leftSpacer) head += `<th class="spacer"></th>`;
+    for (let c = c0; c < c1; c++) {
+      const letter = idxToLetters(c);
+      const tag = fcols[letter] ? `<span class="col-formula-tag">ƒx</span>` : "";
+      head += `<th class="col-letter${colHasSel(c) ? " gutter-active" : ""}" data-col="${c}">${letter}${tag}</th>`;
+    }
+    if (rightSpacer) head += `<th class="spacer"></th>`;
+    tableLetters.innerHTML = head;
+
+    // Baris data + baris kosong
+    const top = r0 * ROW_H;
+    const bottom = (state.viewRows - r1) * ROW_H;
+    const html = [];
+    if (top > 0) html.push(`<tr class="spacer-row"><td class="spacer" colspan="${nCols}" style="height:${top}px"></td></tr>`);
+    for (let r = r0; r < r1; r++) {
+      let tr = `<tr><td class="row-gutter${rowHasSel(r) ? " gutter-active" : ""}" data-row="${r}">${r + 1}</td>`;
+      if (leftSpacer) tr += `<td class="spacer"></td>`;
+      for (let c = c0; c < c1; c++) {
+        const v = getVal(r, c);
+        const ck = r + "," + c;
+        let cls = "";
+        if (isSelected(r, c)) cls += " cell-selected";
+        if (state.precedents.has(ck)) cls += " cell-precedent";
+        tr += `<td${cls ? ` class="${cls.trim()}"` : ""} data-row="${r}" data-col="${c}">${
+          v === null || v === undefined ? "" : escapeHtml(String(v))
+        }</td>`;
+      }
+      if (rightSpacer) tr += `<td class="spacer"></td>`;
+      html.push(tr + "</tr>");
+    }
+    if (bottom > 0) html.push(`<tr class="spacer-row"><td class="spacer" colspan="${nCols}" style="height:${bottom}px"></td></tr>`);
+    tableBody.innerHTML = html.join("");
+
+    // Baris data yang belum dimuat -> minta ke server, lalu gambar ulang
+    if (m.total_rows > 0 && r0 < m.total_rows) {
+      const lastData = Math.min(r1 - 1, m.total_rows - 1);
+      if (!rowsCached(r0, lastData)) {
+        const gen = state.gen;
+        ensureBlocks(r0, lastData).then(() => { if (gen === state.gen) renderGrid(true); });
+      }
+    }
+  }
+
+  // Tambah baris/kolom kosong saat user scroll mendekati tepi bawah/kanan.
+  function growIfNeeded() {
+    const vw = tableWrap.clientWidth || 800;
+    const vh = tableWrap.clientHeight || 480;
+    let changed = false;
+    const needH = HEAD_H + state.viewRows * ROW_H;
+    if (tableWrap.scrollTop + vh >= needH - 3 * ROW_H && state.viewRows < MAX_ROWS) {
+      state.viewRows = Math.min(MAX_ROWS, state.viewRows + GROW_ROWS);
+      changed = true;
+    }
+    const needW = GUTTER_W + state.viewCols * COL_W;
+    if (tableWrap.scrollLeft + vw >= needW - 2 * COL_W && state.viewCols < MAX_COLS) {
+      state.viewCols = Math.min(MAX_COLS, state.viewCols + GROW_COLS);
+      changed = true;
+    }
+    return changed;
+  }
+
+  let scrollRaf = 0;
+  tableWrap.addEventListener("scroll", () => {
+    if (scrollRaf) return;
+    scrollRaf = requestAnimationFrame(() => {
+      scrollRaf = 0;
+      growIfNeeded();
+      renderGrid(false);
+    });
+  }, { passive: true });
+
+  // Gulir supaya sel (r, c) kelihatan (dipakai saat klik chip "bahan rumus").
+  function scrollToCell(r, c) {
+    const vw = tableWrap.clientWidth || 800;
+    const vh = tableWrap.clientHeight || 480;
+    state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, r + PAD_ROWS));
+    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, c + PAD_COLS));
+    let sL = tableWrap.scrollLeft, sT = tableWrap.scrollTop;
+    const x0 = c * COL_W, x1 = x0 + COL_W, y0 = r * ROW_H, y1 = y0 + ROW_H;
+    if (x0 < sL) sL = x0;
+    else if (x1 > sL + vw - GUTTER_W) sL = x1 - (vw - GUTTER_W);
+    if (y0 < sT) sT = y0;
+    else if (y1 > sT + vh - HEAD_H) sT = y1 - (vh - HEAD_H);
+    renderGrid(true);
+    tableWrap.scrollLeft = Math.max(0, sL);
+    tableWrap.scrollTop = Math.max(0, sT);
+    renderGrid(true);
+  }
+
+  // ---------- Klik tabel ----------
+
+  const lastRowIdx = () => Math.max(0, (state.meta ? state.meta.total_rows : 0) - 1);
+  const lastColIdx = () => Math.max(0, (state.meta ? state.meta.total_cols : 0) - 1);
+
+  tableLetters.addEventListener("click", (e) => {
+    if (!state.meta) return;
+    if (e.target.closest("th.corner")) {
+      // Corner kiri atas: pilih seluruh area data
+      applySelection(normRect(0, 0, lastRowIdx(), lastColIdx()), e, { anchor: { r: 0, c: 0 }, single: false });
+      return;
+    }
     const th = e.target.closest("th[data-col]");
-    if (!th || !state.currentPreview) return;
+    if (!th) return;
     const c = Number(th.dataset.col);
-    const d = state.currentPreview;
-    const keys = [];
-    for (let r = firstRow(d); r < d.rows.length; r++) keys.push(`${r},${c}`);
-    applySelection(keys, e, { anchor: { r: firstRow(d), c }, single: false, fullCol: c });
-  };
-  tableLetters.addEventListener("click", onHeaderClick);
+    // Klik huruf kolom = pilih kolom itu sepanjang data
+    applySelection(normRect(0, c, lastRowIdx(), c), e, { anchor: { r: 0, c }, single: false });
+  });
 
   tableBody.addEventListener("click", (e) => {
-    if (!state.currentPreview) return;
+    if (!state.meta) return;
     const gutter = e.target.closest("td.row-gutter");
     if (gutter) {
-      if (gutter.dataset.row === undefined) return; // gutter baris header (bukan data)
       const r = Number(gutter.dataset.row);
-      const keys = state.currentPreview.columns.map((_, c) => `${r},${c}`);
-      applySelection(keys, e, { anchor: { r, c: 0 }, single: false });
+      applySelection(normRect(r, 0, r, lastColIdx()), e, { anchor: { r, c: 0 }, single: false });
       return;
     }
     const cell = e.target.closest("td[data-col]");
     if (!cell) return;
     const r = Number(cell.dataset.row);
     const c = Number(cell.dataset.col);
-    applySelection([`${r},${c}`], e, { anchor: { r, c }, single: true });
+    applySelection(normRect(r, c, r, c), e, { anchor: { r, c }, single: true });
   });
 
   // Listener global dibatalkan otomatis oleh router saat user pindah page (tanpa reload)
@@ -354,48 +549,10 @@
 
   document.addEventListener("keydown", (e) => {
     const tag = (document.activeElement && document.activeElement.tagName) || "";
-    if (e.key === "Escape" && !/INPUT|TEXTAREA|SELECT/.test(tag) && state.selectedCells.size) clearSelection();
+    if (e.key === "Escape" && !/INPUT|TEXTAREA|SELECT/.test(tag) && selCount()) clearSelection();
   }, { signal: pageSignal });
 
-  function renderSelectionHighlight() {
-    const d = state.currentPreview;
-    if (!d) return;
-    const sel = state.selectedCells;
-    const rowsN = d.rows.length;
-    const r0 = firstRow(d);
-
-    tableBody.querySelectorAll("td[data-col]").forEach((td) => {
-      const key = `${td.dataset.row},${td.dataset.col}`;
-      td.classList.toggle("cell-selected", sel.has(key));
-      td.classList.toggle("cell-precedent", state.precedents.has(key));
-    });
-    tableBody.querySelectorAll("td.row-gutter").forEach((td) => {
-      const r = td.dataset.row;
-      td.classList.toggle("gutter-active", d.columns.some((_, c) => sel.has(`${r},${c}`)));
-    });
-    [tableLetters].forEach((row) => {
-      row.querySelectorAll("th[data-col]").forEach((th) => {
-        const c = th.dataset.col;
-        let all = rowsN > 0;
-        for (let r = r0; r < rowsN && all; r++) all = sel.has(`${r},${c}`);
-        th.classList.toggle("gutter-active", all);
-      });
-    });
-
-    // penanda jumlah sel terpilih di tab Rumus
-    const formulaTab = panelTabs.querySelector('[data-tab="formula"]');
-    let badge = formulaTab.querySelector(".panel-tab-count");
-    if (sel.size) {
-      if (!badge) {
-        badge = document.createElement("span");
-        badge.className = "panel-tab-count";
-        formulaTab.appendChild(badge);
-      }
-      badge.textContent = sel.size;
-    } else if (badge) {
-      badge.remove();
-    }
-  }
+  window.addEventListener("resize", () => renderGrid(true), { signal: pageSignal });
 
   // ---------- Isi tab Rumus ----------
 
@@ -403,32 +560,34 @@
     return v === null || v === undefined || v === "" ? "–" : escapeHtml(String(v));
   }
 
-  function precedentKeys(dep, d) {
-    const offset = (d.page - 1) * d.page_size;
+  function lettersToNum(letters) {
+    let n = 0;
+    for (const ch of String(letters).toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  }
+
+  // Sel "bahan rumus" (dep.rows 1-based = nomor baris Excel, dep.cols = huruf kolom) -> key "r,c"
+  function precedentKeys(dep) {
     if (!dep.rows || !dep.cols.length) return [];
     const keys = [];
     for (let row = dep.rows[0]; row <= dep.rows[1]; row++) {
-      const r = row - 1 - offset;
-      if (r < 0 || r >= d.rows.length) continue;
-      dep.cols.forEach((name) => {
-        const c = d.columns.indexOf(name);
-        if (c >= 0) keys.push(`${r},${c}`);
-      });
+      dep.cols.forEach((letter) => keys.push(`${row - 1},${lettersToNum(letter) - 1}`));
+      if (keys.length > 5000) break;
     }
     return keys;
   }
 
-  function renderDeps(entry, d) {
+  function renderDeps(entry) {
     if (!entry.deps || !entry.deps.length) return "";
     const chips = entry.deps
       .map((dep) => {
         const rowsLabel = !dep.rows
           ? t("workspace.formula.depsOutside")
           : dep.rows[0] === dep.rows[1]
-          ? format(t("workspace.formula.depsRow"), { r: rowNumber(d, dep.rows[0] - 1) })
-          : format(t("workspace.formula.depsRows"), { a: rowNumber(d, dep.rows[0] - 1), b: rowNumber(d, dep.rows[1] - 1) });
+          ? format(t("workspace.formula.depsRow"), { r: dep.rows[0] })
+          : format(t("workspace.formula.depsRows"), { a: dep.rows[0], b: dep.rows[1] });
         const name = dep.cols.length ? dep.cols.map(escapeHtml).join(", ") : "?";
-        const keys = precedentKeys(dep, d);
+        const keys = precedentKeys(dep);
         const attr = keys.length ? ` data-keys="${keys.join(";")}"` : " disabled";
         return (
           `<button type="button" class="fp-dep"${attr}>` +
@@ -445,8 +604,8 @@
   }
 
   function renderFormulaPanel() {
-    const d = state.currentPreview;
-    if (!d || !state.selectedCells.size) {
+    const d = state.meta;
+    if (!d || !selCount()) {
       cancelSuggest();
       stats.token++;
       formulaPanelEmpty.hidden = false;
@@ -457,29 +616,30 @@
     formulaPanelEmpty.hidden = true;
     formulaPanelContent.hidden = false;
 
-    const cells = [...state.selectedCells]
-      .map((k) => k.split(",").map(Number))
-      .sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-
     const fCells = d.formula_cells || {};
     const fCols = d.formula_columns || {};
     const dirty = !!d.row_order_dirty;
-    const offset = (d.page - 1) * d.page_size;
-    const cellEntry = (r, col) => {
-      const raw = fCells[String(r)] && fCells[String(r)][col];
+    const cellEntry = (r, letter) => {
+      const raw = fCells[String(r)] && fCells[String(r)][letter];
       return raw ? (typeof raw === "string" ? { f: raw, deps: [], x: false } : raw) : null;
     };
 
+    // Jumlah sel berumus dalam pilihan (peta rumus jarang & hanya mencakup baris yang discan saat upload)
     let formulaCount = 0;
-    cells.forEach(([r, c]) => { if (cellEntry(r, d.columns[c])) formulaCount++; });
+    Object.keys(fCells).forEach((rk) => {
+      Object.keys(fCells[rk]).forEach((letter) => {
+        if (isSelected(Number(rk), lettersToNum(letter) - 1)) formulaCount++;
+      });
+    });
 
     const MAX_SHOWN = 120;
-    const cards = cells.slice(0, MAX_SHOWN).map(([r, c]) => {
-      const col = d.columns[c];
-      const isHeaderCell = r < 0;
-      const val = cellValue(d, r, c);
-      const entry = isHeaderCell ? null : cellEntry(r, col);
-      const info = isHeaderCell ? null : fCols[col];
+    const total = selCount();
+    const cells = selCells(MAX_SHOWN);
+    const cards = cells.map(([r, c]) => {
+      const letter = idxToLetters(c);
+      const val = getVal(r, c);
+      const entry = cellEntry(r, letter);
+      const info = fCols[letter];
       let badge, body;
 
       if (entry) {
@@ -487,12 +647,12 @@
         body =
           `<code class="fp-formula">${escapeHtml(entry.f)}</code>` +
           `<div class="fp-value">${t("workspace.formula.result")}: <strong>${fmtVal(val)}</strong></div>` +
-          renderDeps(entry, d);
+          renderDeps(entry);
       } else if (dirty && info) {
         badge = `<span class="fp-badge fp-badge-unknown">${t("workspace.formula.badgeUnknown")}</span>`;
         body =
           `<div class="fp-note">${format(t("workspace.formula.dirtyNote"), {
-            col: `<strong>${escapeHtml(col)}</strong>`,
+            col: `<strong>${letter}</strong>`,
             pct: Math.round((info.ratio || 0) * 100),
             sample: `<code>${escapeHtml(info.sample || "")}</code>`,
           })}</div>` +
@@ -500,18 +660,17 @@
       } else if (info) {
         badge = `<span class="fp-badge fp-badge-static">${t("workspace.formula.badgeStatic")}</span>`;
         body =
-          `<div class="fp-note">${format(t("workspace.formula.staticNote"), { col: `<strong>${escapeHtml(col)}</strong>` })}</div>` +
+          `<div class="fp-note">${format(t("workspace.formula.staticNote"), { col: `<strong>${letter}</strong>` })}</div>` +
           `<div class="fp-value">${t("workspace.formula.value")}: <strong>${fmtVal(val)}</strong></div>`;
       } else {
         badge = `<span class="fp-badge fp-badge-plain">${t("workspace.formula.badgePlain")}</span>`;
         body = `<div class="fp-value">${t("workspace.formula.value")}: <strong>${fmtVal(val)}</strong></div>`;
       }
 
+      // Kepala kartu = alamat sel seperti di Excel (mis. B4), tanpa "nama kolom"
       return (
         `<div class="fp-cell"><div class="fp-cell-head">` +
-        `<span class="fp-letter">${colLetter(d, col, c)}</span>` +
-        `<span class="fp-col">${escapeHtml(col)}</span>` +
-        `<span class="fp-row">#${rowNumber(d, offset + r)}</span>${badge}</div>${body}</div>`
+        `<span class="fp-letter">${letter}${r + 1}</span>${badge}</div>${body}</div>`
       );
     });
 
@@ -520,12 +679,12 @@
         ? `<div class="fp-note fp-note-top">${t("workspace.formula.noneInSheet")}</div>`
         : "";
     const more =
-      cells.length > MAX_SHOWN
-        ? `<p class="fp-more">${format(t("workspace.formula.more"), { n: cells.length - MAX_SHOWN })}</p>`
+      total > MAX_SHOWN
+        ? `<p class="fp-more">${format(t("workspace.formula.more"), { n: total - MAX_SHOWN })}</p>`
         : "";
 
     formulaPanelContent.innerHTML =
-      `<div class="fp-summary"><span>${format(t("workspace.formula.selected"), { n: cells.length, f: formulaCount })}</span>` +
+      `<div class="fp-summary"><span>${format(t("workspace.formula.selected"), { n: total, f: formulaCount })}</span>` +
       (dirty ? `<span class="fp-dirty-flag">${t("workspace.formula.dirtyFlag")}</span>` : "") +
       `</div><div class="fs-stats" id="formulaStats" role="status"></div><div class="fs-wrap" id="formulaSuggest"></div>${noFormulaNote}${cards.join("")}${more}`;
 
@@ -536,8 +695,8 @@
   // ---------- Statistik pilihan ala status bar Excel (Rata-rata · Hitung · Jumlah) ----------
   // Bekerja untuk pilihan bentuk apa pun, termasuk Ctrl+klik acak. Seperti Excel: hanya angka
   // asli yang dijumlahkan (teks "100" tidak), dan "Hitung" menghitung semua sel yang terisi.
-  // Kolom yang dipilih lewat judul kolomnya dihitung dari SEMUA baris (bukan hanya halaman ini)
-  // lewat /column-stats, sama seperti memilih seluruh kolom di Excel.
+  // Bagian pilihan yang barisnya belum dimuat di browser dihitung server lewat /column-stats
+  // (atas SEMUA baris di rentang itu), jadi memilih seluruh kolom tetap akurat.
   const stats = { token: 0, cache: new Map() };
 
   const isFilled = (v) => !(v === null || v === undefined || (typeof v === "string" && v.trim() === ""));
@@ -560,18 +719,6 @@
     st.sum += o.sum;
     if (o.min !== null && (st.min === null || o.min < st.min)) st.min = o.min;
     if (o.max !== null && (st.max === null || o.max > st.max)) st.max = o.max;
-  }
-
-  // Kolom "penuh" = semua sel kolom itu di halaman ini masih terpilih (Ctrl+klik satu sel
-  // di dalamnya membuatnya tidak penuh lagi, lalu dihitung per sel).
-  function effectiveFullCols(d) {
-    const out = new Set();
-    state.fullCols.forEach((c) => {
-      let all = d.rows.length > 0;
-      for (let r = firstRow(d); r < d.rows.length && all; r++) all = state.selectedCells.has(`${r},${c}`);
-      if (all) out.add(c);
-    });
-    return out;
   }
 
   function fmtStat(n) {
@@ -602,71 +749,83 @@
       (note ? `<div class="fp-note">${note}</div>` : "");
   }
 
-  function localPageStats(d, skip) {
-    const st = newStats();
-    state.selectedCells.forEach((k) => {
-      const [r, c] = k.split(",").map(Number);
-      if (!skip || !skip.has(c)) addCell(st, cellValue(d, r, c));
-    });
-    return st;
-  }
+  const LOCAL_STATS_MAX_CELLS = 200000;
 
   async function updateStats() {
     const box = document.getElementById("formulaStats");
-    const d = state.currentPreview;
+    const d = state.meta;
     const token = ++stats.token;
     if (!box || !d) return;
     // Seperti Excel: satu sel saja tidak memunculkan statistik (nilainya sudah tampil di kartu sel).
-    if (state.selectedCells.size < 2) {
+    if (selCount() < 2) {
       box.innerHTML = "";
       return;
     }
-    const full = d.total_pages > 1 ? effectiveFullCols(d) : new Set();
-    const local = localPageStats(d, full);
-    if (!full.size) {
-      renderStats(box, local);
+
+    const total = newStats();
+    const remote = []; // bagian pilihan yang dihitung server: {r1, r2, letters[]}
+    rects().forEach((x) => {
+      // Sel di luar area data pasti kosong -> tidak ikut dihitung
+      const r2 = Math.min(x.r2, d.total_rows - 1);
+      const c2 = Math.min(x.c2, d.total_cols - 1);
+      if (r2 < x.r1 || c2 < x.c1) return;
+      const area = (r2 - x.r1 + 1) * (c2 - x.c1 + 1);
+      if (rowsCached(x.r1, r2) && area <= LOCAL_STATS_MAX_CELLS) {
+        for (let r = x.r1; r <= r2; r++) for (let c = x.c1; c <= c2; c++) addCell(total, getVal(r, c));
+      } else {
+        const letters = [];
+        for (let c = x.c1; c <= c2; c++) letters.push(idxToLetters(c));
+        remote.push({ r1: x.r1, r2, letters });
+      }
+    });
+
+    if (!remote.length) {
+      renderStats(box, total);
       return;
     }
 
-    const missing = [...full].map((c) => d.columns[c]).filter((n) => !stats.cache.has(n));
-    if (missing.length) {
-      box.innerHTML = `<div class="fp-note">${t("workspace.stats.loading")}</div>`;
-      try {
-        const res = await fetch(api("/column-stats"), {
-          method: "POST",
-          noLoader: true,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sheet: state.sheet, columns: missing }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
-        missing.forEach((n) => stats.cache.set(n, data.stats[n]));
-      } catch (err) {
-        if (token !== stats.token || !box.isConnected) return;
-        renderStats(box, localPageStats(d, null), t("workspace.stats.error"));
-        return;
+    box.innerHTML = `<div class="fp-note">${t("workspace.stats.loading")}</div>`;
+    try {
+      for (const part of remote) {
+        const missing = part.letters.filter((l) => !stats.cache.has(`${l}:${part.r1}:${part.r2}`));
+        for (let i = 0; i < missing.length; i += 200) {
+          const chunk = missing.slice(i, i + 200);
+          const res = await fetch(api("/column-stats"), {
+            method: "POST",
+            noLoader: true,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ sheet: state.sheet, columns: chunk, row_start: part.r1, row_end: part.r2 }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+          chunk.forEach((l) => stats.cache.set(`${l}:${part.r1}:${part.r2}`, data.stats[l]));
+        }
+        part.letters.forEach((l) => mergeStats(total, stats.cache.get(`${l}:${part.r1}:${part.r2}`)));
       }
+    } catch (err) {
+      if (token !== stats.token || !box.isConnected) return;
+      const partial = newStats();
+      rects().forEach((x) => {
+        for (let r = x.r1; r <= Math.min(x.r2, x.r1 + 2000); r++) {
+          for (let c = x.c1; c <= Math.min(x.c2, x.c1 + 200); c++) {
+            const v = getVal(r, c);
+            if (v !== undefined) addCell(partial, v);
+          }
+        }
+      });
+      renderStats(box, partial, t("workspace.stats.error"));
+      return;
     }
     if (token !== stats.token || !box.isConnected) return;
-    full.forEach((c) => {
-      mergeStats(local, stats.cache.get(d.columns[c]));
-      addCell(local, cellValue(d, -1, c)); // sel judul kolom ikut terhitung (angka/teks), seperti di Excel
-    });
-    renderStats(box, local, format(t("workspace.stats.fullNote"), { n: d.total_rows }));
+    renderStats(box, total, format(t("workspace.stats.fullNote"), { n: d.total_rows }));
   }
 
   // ---------- Saran rumus untuk sel yang dipilih (bagian atas tab Rumus) ----------
   // Pilihan dikirim ke /api/formula-suggest; server menghitung rumus yang cocok beserta hasilnya.
-  // Nilai diambil dari data mentah (state.currentPreview), bukan teks di DOM, jadi spasi dan
-  // desimal tetap utuh. Pilihan hanya mencakup halaman yang sedang tampil (50 baris).
+  // Nilai diambil dari data mentah (cache blok), bukan teks di DOM, jadi spasi dan desimal tetap utuh.
   const suggest = { timer: null, ctrl: null, token: 0, formulas: [] };
   const SEP_KEY = "meja-data-formula-sep";
-
-  function lettersToNum(letters) {
-    let n = 0;
-    for (const ch of String(letters).toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
-    return n;
-  }
+  const SUGGEST_MAX_CELLS = 20000; // sama dengan MAX_CELLS di server
 
   function currentLang() {
     return window.MejaDataI18n ? window.MejaDataI18n.getLang() : "id";
@@ -679,36 +838,32 @@
     return saved === ";" || saved === "," ? saved : currentLang() === "id" ? ";" : ",";
   }
 
-  // Pilihan harus satu persegi panjang utuh (bukan Ctrl+klik acak), dan kolomnya harus
-  // berurutan di sheet asli supaya alamat seperti B2:C9 benar.
-  function suggestRequest(d) {
-    const cells = [...state.selectedCells].map((k) => k.split(",").map(Number));
-    if (!cells.length) return null;
-    let r1 = Infinity, r2 = -Infinity, c1 = Infinity, c2 = -Infinity;
-    for (const [r, c] of cells) {
-      if (r < r1) r1 = r;
-      if (r > r2) r2 = r;
-      if (c < c1) c1 = c;
-      if (c > c2) c2 = c;
-    }
-    if (cells.length !== (r2 - r1 + 1) * (c2 - c1 + 1)) return { error: "workspace.suggest.notRect" };
-    const nums = [];
-    for (let c = c1; c <= c2; c++) nums.push(lettersToNum(colLetter(d, d.columns[c], c)));
-    for (let i = 1; i < nums.length; i++) {
-      if (nums[i] !== nums[i - 1] + 1) return { error: "workspace.suggest.gap" };
-    }
+  // Pilihan harus satu persegi panjang utuh (bukan Ctrl+klik acak). Kolom otomatis berurutan
+  // karena kolom = huruf asli sheet, jadi alamat seperti B2:C9 selalu benar.
+  async function suggestRequest(d) {
+    const rs = rects();
+    if (rs.length !== 1) return { error: "workspace.suggest.notRect" };
+    const x = rs[0];
+    const area = (x.r2 - x.r1 + 1) * (x.c2 - x.c1 + 1);
+    if (area > SUGGEST_MAX_CELLS) return { error: "workspace.suggest.tooBig" };
+    await ensureBlocks(x.r1, Math.min(x.r2, d.total_rows - 1));
     const rows = [];
-    for (let r = r1; r <= r2; r++) {
+    let anyFilled = false;
+    for (let r = x.r1; r <= x.r2; r++) {
       const line = [];
-      for (let c = c1; c <= c2; c++) line.push(cellValue(d, r, c));
+      for (let c = x.c1; c <= x.c2; c++) {
+        const v = getVal(r, c);
+        if (isFilled(v)) anyFilled = true;
+        line.push(v === undefined ? null : v);
+      }
       rows.push(line);
     }
-    const offset = (d.page - 1) * d.page_size;
+    if (!anyFilled) return { empty: true };
     return {
       body: {
         rows,
-        start_row: rowNumber(d, offset + r1), // nomor baris yang sama dengan yang tampil di gutter
-        start_col: nums[0],
+        start_row: x.r1 + 1, // nomor baris Excel (1-based) = angka di gutter
+        start_col: x.c1 + 1, // nomor kolom Excel (A = 1)
         sep: formulaSep(),
         lang: currentLang(),
       },
@@ -722,12 +877,12 @@
   }
 
   function renderSuggestions(wrap, data) {
-    const d = state.currentPreview;
+    const d = state.meta;
     const items = data.suggestions || [];
     const sel = data.selection || {};
     suggest.formulas = items.map((x) => x.formula);
 
-    const notes = [t("workspace.suggest.pageNote")];
+    const notes = [];
     if (d && d.row_order_dirty) notes.push(t("workspace.suggest.dirty"));
     const sep = formulaSep();
 
@@ -737,7 +892,7 @@
       `<label class="fs-sep">${t("workspace.suggest.sep")} ` +
       `<select class="fs-sep-select"><option value=","${sep === "," ? " selected" : ""}>,</option>` +
       `<option value=";"${sep === ";" ? " selected" : ""}>;</option></select></label></div>` +
-      `<div class="fp-note fs-note">${notes.join(" ")}</div>`;
+      (notes.length ? `<div class="fp-note fs-note">${notes.join(" ")}</div>` : "");
 
     let lastCat = null;
     items.forEach((x, i) => {
@@ -768,20 +923,21 @@
   function scheduleSuggestions() {
     cancelSuggest();
     const wrap = document.getElementById("formulaSuggest");
-    const d = state.currentPreview;
+    const d = state.meta;
     if (!wrap || !d) return;
-    const req = suggestRequest(d);
-    if (!req) {
-      wrap.innerHTML = "";
-      return;
-    }
-    if (req.error) {
-      wrap.innerHTML = `<div class="fp-note fp-note-top">${t(req.error)}</div>`;
-      return;
-    }
-    wrap.innerHTML = `<div class="fp-note">${t("workspace.suggest.loading")}</div>`;
     const token = suggest.token;
+    wrap.innerHTML = `<div class="fp-note">${t("workspace.suggest.loading")}</div>`;
     suggest.timer = setTimeout(async () => {
+      const req = await suggestRequest(d);
+      if (token !== suggest.token || !wrap.isConnected) return;
+      if (req.empty) {
+        wrap.innerHTML = "";
+        return;
+      }
+      if (req.error) {
+        wrap.innerHTML = `<div class="fp-note fp-note-top">${t(req.error)}</div>`;
+        return;
+      }
       const ctrl = (suggest.ctrl = new AbortController());
       try {
         const res = await fetch("/api/formula-suggest", {
@@ -847,29 +1003,26 @@
     formulaPanelContent.querySelectorAll(".fp-dep").forEach((el) => {
       el.classList.toggle("active", !same && el === chip);
     });
-    renderSelectionHighlight();
+    renderGrid(true);
     if (!same) {
-      const first = tableBody.querySelector("td.cell-precedent");
-      if (first && first.scrollIntoView) first.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      const [r, c] = keys[0].split(",").map(Number);
+      scrollToCell(r, c);
     }
   });
-
-  pagePrev.addEventListener("click", () => { state.page--; loadPreview(); });
-  pageNext.addEventListener("click", () => { state.page++; loadPreview(); });
 
   // ---------- Toolbar manipulasi ----------
 
   const PARAM_FORMS = {
-    drop_na: () => `<input data-k="columns" placeholder="Kolom (opsional, pisah koma)">`,
-    drop_duplicates: () => `<input data-k="columns" placeholder="Kolom (opsional, pisah koma)">`,
+    drop_na: () => `<input data-k="columns" placeholder="Kolom (opsional, mis. A, C)">`,
+    drop_duplicates: () => `<input data-k="columns" placeholder="Kolom (opsional, mis. A, C)">`,
     sort: () => `
-      <input data-k="column" placeholder="Nama kolom">
+      <input data-k="column" placeholder="Kolom (mis. B)">
       <select data-k="ascending">
         <option value="true">Naik (A-Z / kecil-besar)</option>
         <option value="false">Turun (Z-A / besar-kecil)</option>
       </select>`,
     filter_rows: () => `
-      <input data-k="column" placeholder="Nama kolom">
+      <input data-k="column" placeholder="Kolom (mis. B)">
       <select data-k="condition">
         <option value="eq">sama dengan</option>
         <option value="neq">tidak sama dengan</option>
@@ -878,8 +1031,8 @@
         <option value="contains">mengandung teks</option>
       </select>
       <input data-k="value" placeholder="Nilai">`,
-    cast_numeric: () => `<input data-k="columns" placeholder="Kolom (pisah koma)">`,
-    drop_column: () => `<input data-k="columns" placeholder="Kolom yang dihapus (pisah koma)">`,
+    cast_numeric: () => `<input data-k="columns" placeholder="Kolom (mis. D, E)">`,
+    drop_column: () => `<input data-k="columns" placeholder="Kolom yang dihapus (mis. C, F)">`,
   };
 
   opAction.addEventListener("change", () => {
@@ -912,7 +1065,6 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menerapkan aksi");
-      state.page = 1;
       await loadPreview();
     } catch (err) {
       alert(err.message);
@@ -924,7 +1076,6 @@
   document.getElementById("btnReset").addEventListener("click", async () => {
     if (!confirm("Kembalikan salinan kerja ke kondisi awal upload?")) return;
     await fetch(api("/reset"), { method: "POST" });
-    state.page = 1;
     loadPreview();
   });
 
@@ -1006,7 +1157,7 @@
   // Ganti bahasa: render ulang semua teks yang dibuat lewat JS (bukan data-i18n statis)
   window.addEventListener("mejadata:langchange", () => {
     chatLog.querySelectorAll(".chat-msg-meta[data-sheets]").forEach(renderSheetsMeta);
-    if (state.currentPreview) renderPager(state.currentPreview);
+    renderGridInfo();
     renderFormulaPanel();
   }, { signal: pageSignal });
 
