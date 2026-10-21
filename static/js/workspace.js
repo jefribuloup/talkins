@@ -427,6 +427,7 @@
   function renderFormulaPanel() {
     const d = state.currentPreview;
     if (!d || !state.selectedCells.size) {
+      cancelSuggest();
       formulaPanelEmpty.hidden = false;
       formulaPanelContent.hidden = true;
       formulaPanelContent.innerHTML = "";
@@ -505,8 +506,191 @@
     formulaPanelContent.innerHTML =
       `<div class="fp-summary"><span>${format(t("workspace.formula.selected"), { n: cells.length, f: formulaCount })}</span>` +
       (dirty ? `<span class="fp-dirty-flag">${t("workspace.formula.dirtyFlag")}</span>` : "") +
-      `</div>${noFormulaNote}${cards.join("")}${more}`;
+      `</div><div class="fs-wrap" id="formulaSuggest"></div>${noFormulaNote}${cards.join("")}${more}`;
+
+    scheduleSuggestions();
   }
+
+  // ---------- Saran rumus untuk sel yang dipilih (bagian atas tab Rumus) ----------
+  // Pilihan dikirim ke /api/formula-suggest; server menghitung rumus yang cocok beserta hasilnya.
+  // Nilai diambil dari data mentah (state.currentPreview), bukan teks di DOM, jadi spasi dan
+  // desimal tetap utuh. Pilihan hanya mencakup halaman yang sedang tampil (50 baris).
+  const suggest = { timer: null, ctrl: null, token: 0, formulas: [] };
+  const SEP_KEY = "meja-data-formula-sep";
+
+  function lettersToNum(letters) {
+    let n = 0;
+    for (const ch of String(letters).toUpperCase()) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n;
+  }
+
+  function currentLang() {
+    return window.MejaDataI18n ? window.MejaDataI18n.getLang() : "id";
+  }
+
+  // Excel berlokal Indonesia memakai ";" sebagai pemisah argumen, Excel Inggris memakai ",".
+  // Default mengikuti bahasa antarmuka; user bisa menggantinya lewat pilihan di panel.
+  function formulaSep() {
+    const saved = localStorage.getItem(SEP_KEY);
+    return saved === ";" || saved === "," ? saved : currentLang() === "id" ? ";" : ",";
+  }
+
+  // Pilihan harus satu persegi panjang utuh (bukan Ctrl+klik acak), dan kolomnya harus
+  // berurutan di sheet asli supaya alamat seperti B2:C9 benar.
+  function suggestRequest(d) {
+    const cells = [...state.selectedCells].map((k) => k.split(",").map(Number));
+    if (!cells.length) return null;
+    let r1 = Infinity, r2 = -Infinity, c1 = Infinity, c2 = -Infinity;
+    for (const [r, c] of cells) {
+      if (r < r1) r1 = r;
+      if (r > r2) r2 = r;
+      if (c < c1) c1 = c;
+      if (c > c2) c2 = c;
+    }
+    if (cells.length !== (r2 - r1 + 1) * (c2 - c1 + 1)) return { error: "workspace.suggest.notRect" };
+    const nums = [];
+    for (let c = c1; c <= c2; c++) nums.push(lettersToNum(colLetter(d, d.columns[c], c)));
+    for (let i = 1; i < nums.length; i++) {
+      if (nums[i] !== nums[i - 1] + 1) return { error: "workspace.suggest.gap" };
+    }
+    const rows = [];
+    for (let r = r1; r <= r2; r++) {
+      const line = [];
+      for (let c = c1; c <= c2; c++) line.push(cellValue(d, r, c));
+      rows.push(line);
+    }
+    const offset = (d.page - 1) * d.page_size;
+    return {
+      body: {
+        rows,
+        start_row: rowNumber(d, offset + r1), // nomor baris yang sama dengan yang tampil di gutter
+        start_col: nums[0],
+        sep: formulaSep(),
+        lang: currentLang(),
+      },
+    };
+  }
+
+  function cancelSuggest() {
+    clearTimeout(suggest.timer);
+    if (suggest.ctrl) suggest.ctrl.abort();
+    suggest.token++;
+  }
+
+  function renderSuggestions(wrap, data) {
+    const d = state.currentPreview;
+    const items = data.suggestions || [];
+    const sel = data.selection || {};
+    suggest.formulas = items.map((x) => x.formula);
+
+    const notes = [t("workspace.suggest.pageNote")];
+    if (d && d.row_order_dirty) notes.push(t("workspace.suggest.dirty"));
+    const sep = formulaSep();
+
+    let html =
+      `<div class="fs-head"><span>${t("workspace.suggest.title")}</span>` +
+      `<span class="fs-ref">${escapeHtml(sel.ref || "")}</span>` +
+      `<label class="fs-sep">${t("workspace.suggest.sep")} ` +
+      `<select class="fs-sep-select"><option value=","${sep === "," ? " selected" : ""}>,</option>` +
+      `<option value=";"${sep === ";" ? " selected" : ""}>;</option></select></label></div>` +
+      `<div class="fp-note fs-note">${notes.join(" ")}</div>`;
+
+    let lastCat = null;
+    items.forEach((x, i) => {
+      if (x.category !== lastCat) {
+        html += `<div class="fs-cat">${escapeHtml(x.category)}</div>`;
+        lastCat = x.category;
+      }
+      let out;
+      if (x.kind === "single") {
+        out = `<div class="fp-value">${t("workspace.formula.result")}: <strong>${fmtVal(x.result)}</strong></div>`;
+      } else {
+        out =
+          `<table class="fs-prev"><caption>${format(t("workspace.suggest.preview"), { n: x.preview.length })}</caption>` +
+          x.preview
+            .map((p) => `<tr><td>${escapeHtml(p.input)}</td><td>→</td><td>${escapeHtml(p.output)}</td></tr>`)
+            .join("") +
+          `</table>`;
+      }
+      html +=
+        `<div class="fp-cell fs-card"><div class="fs-top">` +
+        `<code class="fp-formula">${escapeHtml(x.formula)}</code>` +
+        `<button type="button" class="btn fs-copy" data-i="${i}">${t("workspace.suggest.copy")}</button></div>` +
+        `<div class="fp-note fs-desc">${escapeHtml(x.description)}</div>${out}</div>`;
+    });
+    wrap.innerHTML = html;
+  }
+
+  function scheduleSuggestions() {
+    cancelSuggest();
+    const wrap = document.getElementById("formulaSuggest");
+    const d = state.currentPreview;
+    if (!wrap || !d) return;
+    const req = suggestRequest(d);
+    if (!req) {
+      wrap.innerHTML = "";
+      return;
+    }
+    if (req.error) {
+      wrap.innerHTML = `<div class="fp-note fp-note-top">${t(req.error)}</div>`;
+      return;
+    }
+    wrap.innerHTML = `<div class="fp-note">${t("workspace.suggest.loading")}</div>`;
+    const token = suggest.token;
+    suggest.timer = setTimeout(async () => {
+      const ctrl = (suggest.ctrl = new AbortController());
+      try {
+        const res = await fetch("/api/formula-suggest", {
+          method: "POST",
+          noLoader: true, // jangan munculkan preloader global tiap klik sel
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(req.body),
+          signal: ctrl.signal,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+        if (token !== suggest.token || !wrap.isConnected) return;
+        renderSuggestions(wrap, data);
+      } catch (err) {
+        if (err.name === "AbortError" || token !== suggest.token || !wrap.isConnected) return;
+        wrap.innerHTML = `<div class="fp-note fp-note-top">${t("workspace.suggest.error")}: ${escapeHtml(err.message)}</div>`;
+      }
+    }, 200);
+  }
+
+  function fallbackCopy(text, done) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); } catch (e) { /* abaikan */ }
+    ta.remove();
+    done();
+  }
+
+  formulaPanelContent.addEventListener("click", (e) => {
+    const btn = e.target.closest(".fs-copy");
+    if (!btn) return;
+    const text = suggest.formulas[Number(btn.dataset.i)];
+    if (text === undefined) return;
+    const done = () => {
+      btn.textContent = t("workspace.suggest.copied");
+      setTimeout(() => { btn.textContent = t("workspace.suggest.copy"); }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  });
+
+  formulaPanelContent.addEventListener("change", (e) => {
+    const sel = e.target.closest(".fs-sep-select");
+    if (!sel) return;
+    localStorage.setItem(SEP_KEY, sel.value);
+    scheduleSuggestions();
+  });
 
   // Klik chip "bahan rumus" -> tandai sel sumbernya di tabel (tanpa mengubah pilihan)
   formulaPanelContent.addEventListener("click", (e) => {
