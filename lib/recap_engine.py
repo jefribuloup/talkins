@@ -9,6 +9,7 @@ Posisi temuan dikembalikan sebagai persegi panjang 0-based [r1, c1, r2, c2] supa
 bisa langsung memilih & menggulir ke selnya.
 """
 
+import math
 import re
 import statistics
 from collections import Counter, defaultdict
@@ -439,8 +440,11 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
                 len(manual), _cells_rects([(r, c) for r in manual]))
             shown += 1
 
-    # ---- 5. Analisa ----
-    numeric, categories, dates = [], [], []
+    # ---- 5. Analisa & bahan grafik/pivot ----
+    numeric, categories, dates, histograms = [], [], [], []
+    num_cols = []   # indeks kolom angka (urut kemunculan)
+    cat_rows = {}   # indeks kolom -> [(baris, nilai)] untuk tabel pivot
+    date_cols = []
     for c in range(ncols):
         L = _letters(c)
         idx = [i for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c]]
@@ -457,6 +461,7 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
                 lo, hi = q[0] - 1.5 * iqr, q[2] + 1.5 * iqr
                 if iqr > 0:
                     outl = [(i, c) for i, v in nums if v < lo or v > hi]
+            num_cols.append(c)
             numeric.append({"col": L, "n": len(xs), "min": min(xs), "max": max(xs),
                             "mean": sum(xs) / len(xs), "median": statistics.median(xs),
                             "outliers": len(outl)})
@@ -464,21 +469,94 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
                 add(f"outliers_{c}", "insight", "low", tx("outliers.t", col=L),
                     tx("outliers.d", n=len(outl), col=L, lo=_fmt_num(lo), hi=_fmt_num(hi)),
                     len(outl), _cells_rects(outl))
-        texts = [str(val(i, c)).strip() for i in idx if kinds[c][i][0] == "text"]
-        if len(categories) < 3 and len(texts) >= 5 and len(texts) / len(idx) >= 0.8:
-            cnt = Counter(texts)
+            # Histogram (sebaran nilai), maksimal 4 kolom
+            if len(histograms) < 4:
+                k = min(10, max(5, int(math.log2(len(xs))) + 1))
+                mn, mx = min(xs), max(xs)
+                if mx > mn:
+                    w = (mx - mn) / k
+                    bins = [{"lo": mn + j * w, "hi": mn + (j + 1) * w, "count": 0, "cells": []} for j in range(k)]
+                    for i, v in nums:
+                        j = min(int((float(v) - mn) / w), k - 1)
+                        bins[j]["count"] += 1
+                        bins[j]["cells"].append((i, c))
+                    histograms.append({"col": L, "bins": [
+                        {"lo": b_["lo"], "hi": b_["hi"], "count": b_["count"],
+                         "targets": _cells_rects(b_["cells"])} for b_ in bins]})
+
+        vals = [(i, str(val(i, c)).strip()) for i in idx if kinds[c][i][0] == "text"]
+        if len(categories) < 3 and len(vals) >= 5 and len(vals) / len(idx) >= 0.8:
+            cnt = Counter(v for _, v in vals)
             # Sel teks pertama yang unik & beda dari sisanya kemungkinan label kolom -> jangan dihitung
-            if cnt[texts[0]] == 1 and 2 <= len(cnt) - 1 <= 20 and (len(cnt) - 1) / (len(texts) - 1) <= 0.5:
-                texts = texts[1:]
-                cnt = Counter(texts)
-            if 2 <= len(cnt) <= 20 and len(cnt) / len(texts) <= 0.5:
-                top = cnt.most_common(6)
-                categories.append({"col": L, "total": len(texts), "unique": len(cnt),
-                                   "top": [{"value": _short(k, 22), "count": n} for k, n in top],
-                                   "others": len(texts) - sum(n for _, n in top)})
+            if cnt[vals[0][1]] == 1 and 2 <= len(cnt) - 1 <= 20 and (len(cnt) - 1) / (len(vals) - 1) <= 0.5:
+                vals = vals[1:]
+                cnt = Counter(v for _, v in vals)
+            if 2 <= len(cnt) <= 20 and len(cnt) / len(vals) <= 0.5:
+                top = cnt.most_common(8)
+                top_set = {k for k, _ in top}
+                categories.append({
+                    "col": L, "ci": c, "total": len(vals), "unique": len(cnt),
+                    "top": [{"value": _short(k, 22), "count": n,
+                             "targets": _cells_rects([(i, c) for i, v in vals if v == k])}
+                            for k, n in top],
+                    "others": sum(1 for _, v in vals if v not in top_set)})
+                cat_rows[c] = (vals, [k for k, _ in top])
         isod = sorted(str(val(i, c)).strip()[:10] for i in idx if kinds[c][i][1] == "iso")
         if len(isod) >= 3 and len(isod) / len(idx) >= 0.6 and len(dates) < 3:
             dates.append({"col": L, "n": len(isod), "min": isod[0], "max": isod[-1]})
+            date_cols.append(c)
+
+    # ---- Tabel pivot: kategori x (hitung, jumlah, rata-rata kolom angka) ----
+    pivots = []
+    for ci, (vals, top_keys) in list(cat_rows.items())[:2]:
+        measures = [nc for nc in num_cols if nc != ci][:2]
+        groups = [(k, [i for i, v in vals if v == k]) for k in top_keys]
+        rest = [i for i, v in vals if v not in set(top_keys)]
+        if rest:
+            groups.append((None, rest))
+
+        def agg(rows_):
+            out = {"count": len(rows_), "m": []}
+            for nc in measures:
+                xs = [float(val(i, nc)) for i in rows_ if kinds[nc][i][0] == "num" and i not in skip[nc]]
+                out["m"].append({"sum": sum(xs), "avg": (sum(xs) / len(xs)) if xs else None})
+            return out
+
+        cat_index = next(j for j, cat in enumerate(categories) if cat["ci"] == ci)
+        prow = []
+        for gi, (k, rows_) in enumerate(groups):
+            r_ = agg(rows_)
+            r_["label"] = None if k is None else _short(k, 22)
+            r_["src"] = [cat_index, gi] if k is not None else None
+            prow.append(r_)
+        pivots.append({"col": _letters(ci), "measures": [_letters(nc) for nc in measures],
+                       "rows": prow, "total": agg([i for i, _ in vals])})
+
+    # ---- Tren: kolom tanggal ISO x kolom angka, dijumlah per bulan (atau per hari) ----
+    trend = None
+    if date_cols and num_cols:
+        dc = date_cols[0]
+        ms = [nc for nc in num_cols if nc != dc][:2]
+        if ms:
+            import datetime as _dt
+            ds = [(i, str(val(i, dc)).strip()[:10]) for i in range(nrows)
+                  if kinds[dc][i][1] == "iso" and i not in skip[dc]]
+            try:
+                span = (_dt.date.fromisoformat(max(d for _, d in ds)) - _dt.date.fromisoformat(min(d for _, d in ds))).days
+            except ValueError:
+                span = 0
+            gran = "month" if span >= 60 else "day"
+            agg_t = defaultdict(lambda: [0.0] * len(ms))
+            for i, d in ds:
+                key = d[:7] if gran == "month" else d
+                for j, nc in enumerate(ms):
+                    if kinds[nc][i][0] == "num" and i not in skip[nc]:
+                        agg_t[key][j] += float(val(i, nc))
+            keys = sorted(agg_t)[-36:]
+            if len(keys) >= 2:
+                trend = {"date_col": _letters(dc), "cols": [_letters(nc) for nc in ms],
+                         "granularity": gran,
+                         "points": [{"label": k, "values": agg_t[k]} for k in keys]}
 
     # ---- Skor, urutan, kesimpulan ----
     findings.sort(key=lambda f: (SEV_ORDER[f["severity"]], -f["count"]))
@@ -515,4 +593,7 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
         "numeric": numeric,
         "categories": categories,
         "dates": dates,
+        "histograms": histograms,
+        "pivots": pivots,
+        "trend": trend,
     }
