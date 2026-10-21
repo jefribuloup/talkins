@@ -9,6 +9,8 @@
   const panelTabs = document.getElementById("panelTabs");
   const tabViewChat = document.getElementById("tabViewChat");
   const tabViewFormula = document.getElementById("tabViewFormula");
+  const tabViewRecap = document.getElementById("tabViewRecap");
+  const recapPanel = document.getElementById("recapPanel");
   const formulaPanelEmpty = document.getElementById("formulaPanelEmpty");
   const formulaPanelContent = document.getElementById("formulaPanelContent");
   const pagerInfo = document.getElementById("pagerInfo");
@@ -165,6 +167,8 @@
     });
     tabViewChat.hidden = name !== "chat";
     tabViewFormula.hidden = name !== "formula";
+    tabViewRecap.hidden = name !== "recap";
+    if (name === "recap" && recap.stale) loadRecap();
     if (name === "chat") chatLog.scrollTop = chatLog.scrollHeight;
   }
 
@@ -222,6 +226,7 @@
     renderGridInfo();
     renderFormulaPanel();
     updateTabBadge();
+    markRecapStale();
   }
 
   function renderGridInfo() {
@@ -1010,6 +1015,118 @@
     }
   });
 
+  // ---------- Tab Rekap: analisa otomatis sheet (duplikat, format, error, statistik) ----------
+  // Semua angka dihitung server dari data; di sini hanya ditampilkan. Klik "Lihat sel" pada sebuah
+  // temuan -> sel bermasalahnya dipilih & tabel digulir ke sana.
+  const recap = { data: null, stale: true, loading: false, token: 0 };
+
+  function recapActive() { return !tabViewRecap.hidden; }
+
+  async function loadRecap() {
+    if (!state.sheet) return;
+    const token = ++recap.token;
+    recap.stale = false;
+    recapPanel.innerHTML = `<p class="formula-panel-empty">${t("workspace.recap.loading")}</p>`;
+    try {
+      const res = await fetch(api(`/recap?sheet=${encodeURIComponent(state.sheet)}&lang=${currentLang()}`), { noLoader: true });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+      if (token !== recap.token) return;
+      recap.data = data;
+      renderRecap(data);
+    } catch (err) {
+      if (token !== recap.token) return;
+      recap.stale = true;
+      recapPanel.innerHTML = `<p class="formula-panel-empty">${t("workspace.recap.error")}: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  function markRecapStale() {
+    recap.stale = true;
+    if (recapActive()) loadRecap();
+  }
+
+  function recapNum(n) {
+    return new Intl.NumberFormat(currentLang() === "en" ? "en-US" : "id-ID", { maximumFractionDigits: 2 }).format(n);
+  }
+
+  function renderRecap(d) {
+    const s = d.summary;
+    const C = 2 * Math.PI * 26;
+    const tone = s.score >= 85 ? "good" : s.score >= 65 ? "fair" : "poor";
+    let h = `<div class="rc-toolbar"><button type="button" class="btn rc-refresh">${t("workspace.recap.refresh")}</button></div>`;
+
+    h += `<div class="fp-cell rc-summary"><svg class="rc-ring rc-${tone}" viewBox="0 0 64 64" aria-hidden="true">` +
+      `<circle cx="32" cy="32" r="26" class="rc-ring-bg"/>` +
+      `<circle cx="32" cy="32" r="26" class="rc-ring-fg" stroke-dasharray="${(s.score / 100) * C} ${C}" transform="rotate(-90 32 32)"/>` +
+      `<text x="32" y="37" text-anchor="middle" class="rc-ring-n">${s.score}</text></svg>` +
+      `<div class="rc-summary-text"><strong>${t("workspace.recap.score")}: ${escapeHtml(s.grade)}</strong>` +
+      `<span>${recapNum(s.rows)} × ${recapNum(s.cols)}</span>` +
+      `<span>${recapNum(s.filled)} ${t("workspace.recap.filled")} · ${recapNum(s.empty)} ${t("workspace.recap.empty")} (${s.fill_pct}%)</span></div></div>`;
+
+    h += `<div class="rc-title">${t("workspace.recap.conclusion")}</div><div class="fp-cell rc-conclusion">` +
+      d.conclusion.map((x) => `<p>${escapeHtml(x)}</p>`).join("") + `</div>`;
+
+    h += `<div class="rc-title">${t("workspace.recap.findings")}</div>`;
+    d.findings.forEach((f, i) => {
+      const btn = f.targets && f.targets.length
+        ? `<button type="button" class="btn rc-show" data-i="${i}">${t("workspace.recap.show")}</button>` : "";
+      h += `<div class="fp-cell rc-finding"><div class="fp-cell-head">` +
+        `<span class="rc-sev rc-sev-${f.severity}">${t("workspace.recap.sev." + f.severity)}</span>` +
+        `<strong class="rc-ftitle">${escapeHtml(f.title)}</strong>` +
+        (f.count ? `<span class="rc-count">${recapNum(f.count)}</span>` : "") + `</div>` +
+        `<div class="fp-note">${escapeHtml(f.detail)}</div>${btn}</div>`;
+    });
+
+    if (d.column_fill.length) {
+      h += `<div class="rc-title">${t("workspace.recap.fill")}</div><div class="fp-cell rc-bars">` +
+        d.column_fill.map((c) =>
+          `<div class="rc-bar-row"><span class="rc-bar-k">${escapeHtml(c.col)}</span>` +
+          `<span class="rc-bar"><span class="rc-bar-fill${c.pct < 50 ? " rc-low" : ""}" style="width:${c.pct}%"></span></span>` +
+          `<span class="rc-bar-v">${c.pct}%</span></div>`).join("") + `</div>`;
+    }
+
+    if (d.numeric.length) {
+      h += `<div class="rc-title">${t("workspace.recap.numeric")}</div><div class="fp-cell rc-tablewrap"><table class="rc-table"><tr>` +
+        ["", "min", "average", "workspace.recap.median", "max", "workspace.recap.outliers"]
+          .map((k) => `<th>${k === "" ? "" : t(k.includes(".") ? k : "workspace.stats." + k)}</th>`).join("") + `</tr>` +
+        d.numeric.map((n) =>
+          `<tr><td>${escapeHtml(n.col)}</td><td>${recapNum(n.min)}</td><td>${recapNum(n.mean)}</td>` +
+          `<td>${recapNum(n.median)}</td><td>${recapNum(n.max)}</td><td>${n.outliers}</td></tr>`).join("") +
+        `</table></div>`;
+    }
+
+    d.categories.forEach((c) => {
+      const max = Math.max(...c.top.map((x) => x.count), 1);
+      h += `<div class="rc-title">${t("workspace.recap.categories")} · ${escapeHtml(c.col)}</div><div class="fp-cell rc-bars">` +
+        c.top.map((x) =>
+          `<div class="rc-bar-row rc-bar-wide"><span class="rc-bar-k">${escapeHtml(x.value)}</span>` +
+          `<span class="rc-bar"><span class="rc-bar-fill" style="width:${(100 * x.count) / max}%"></span></span>` +
+          `<span class="rc-bar-v">${x.count}</span></div>`).join("") + `</div>`;
+    });
+
+    if (d.dates.length) {
+      h += `<div class="rc-title">${t("workspace.recap.dates")}</div><div class="fp-cell">` +
+        d.dates.map((x) => `<p class="rc-date"><strong>${escapeHtml(x.col)}</strong>: ${escapeHtml(x.min)} → ${escapeHtml(x.max)} (${x.n})</p>`).join("") + `</div>`;
+    }
+    recapPanel.innerHTML = h;
+  }
+
+  recapPanel.addEventListener("click", (e) => {
+    if (e.target.closest(".rc-refresh")) { loadRecap(); return; }
+    const btn = e.target.closest(".rc-show");
+    if (!btn || !recap.data || !state.meta) return;
+    const f = recap.data.findings[Number(btn.dataset.i)];
+    if (!f || !f.targets.length) return;
+    state.sel = {
+      rects: f.targets.map(([r1, c1, r2, c2]) => ({ r1, c1, r2, c2 })),
+      anchor: { r: f.targets[0][0], c: f.targets[0][1] },
+    };
+    state.precedents.clear();
+    selectionChanged();
+    scrollToCell(f.targets[0][0], f.targets[0][1]);
+  });
+
   // ---------- Toolbar manipulasi ----------
 
   const PARAM_FORMS = {
@@ -1158,6 +1275,7 @@
   window.addEventListener("mejadata:langchange", () => {
     chatLog.querySelectorAll(".chat-msg-meta[data-sheets]").forEach(renderSheetsMeta);
     renderGridInfo();
+    markRecapStale();
     renderFormulaPanel();
   }, { signal: pageSignal });
 
