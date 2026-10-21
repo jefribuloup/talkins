@@ -390,6 +390,19 @@ def _migrate_legacy_sheet(file_id, sheet_name):
     conn.close()
 
 
+def get_recap(file_id, sheet_name, lang="id"):
+    """Rekapitulasi (duplikat, format, error, analisa) untuk data sheet saat ini."""
+    from lib import recap_engine
+    _migrate_legacy_sheet(file_id, sheet_name)
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    if records is None:
+        raise ValueError("Sheet tidak ditemukan")
+    columns = _get_columns(file_id, sheet_name)
+    formula_columns, formula_cells, dirty, _ = db.get_formula_info(file_id, sheet_name)
+    return recap_engine.build_recap(
+        records, columns, formula_columns, {} if dirty else formula_cells, lang)
+
+
 MAX_ROWS_PER_REQUEST = 500
 
 
