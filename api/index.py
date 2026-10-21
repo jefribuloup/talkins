@@ -103,8 +103,16 @@ def get_sheets(file_id):
 @app.route("/api/files/<file_id>/preview", methods=["GET"])
 def preview(file_id):
     sheet = request.args.get("sheet")
-    page = int(request.args.get("page", 1))
-    return jsonify(excel_engine.preview_sheet(file_id, sheet, page))
+    try:
+        row_start = int(request.args.get("row_start", 0))
+        row_count = int(request.args.get("row_count", 200))
+    except ValueError:
+        return jsonify({"error": "row_start/row_count harus angka"}), 400
+    with_meta = request.args.get("meta", "1") != "0"
+    try:
+        return jsonify(excel_engine.preview_sheet(file_id, sheet, row_start, row_count, with_meta))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
 
 
 @app.route("/api/files/<file_id>/manipulate", methods=["POST"])
