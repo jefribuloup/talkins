@@ -115,6 +115,16 @@ def preview(file_id):
         return jsonify({"error": str(e)}), 404
 
 
+@app.route("/api/files/<file_id>/recap", methods=["GET"])
+def recap(file_id):
+    sheet = request.args.get("sheet")
+    lang = request.args.get("lang", "id")
+    try:
+        return jsonify(excel_engine.get_recap(file_id, sheet, lang))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+
+
 @app.route("/api/files/<file_id>/manipulate", methods=["POST"])
 def manipulate(file_id):
     op = request.json  # contoh: {"action": "drop_na", "sheet": "Sheet1", "columns": [...]}
