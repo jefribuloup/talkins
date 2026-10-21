@@ -456,13 +456,15 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
     }
 
 
-def column_stats(records, col_indexes):
+def column_stats(records, col_indexes, row_start=0, row_end=None):
     """Statistik per kolom atas SEMUA baris: {index: {count, numeric, sum, min, max}}.
 
     count = sel tidak kosong (teks ikut), numeric = sel berisi angka asli. Sama dengan
     Count / Numerical Count / Sum / Min / Max di status bar Excel.
     """
     out = {}
+    if row_start or row_end is not None:
+        records = records[row_start:(row_end + 1) if row_end is not None else None]
     for j in col_indexes:
         count = 0
         nums = []
@@ -503,7 +505,12 @@ def register_routes(app):
         missing = [n for n in names if n not in position]
         if missing:
             return jsonify({"error": "Kolom tidak ditemukan: " + ", ".join(missing[:5])}), 400
-        stats = column_stats(records, [position[n] for n in names])
+        try:  # rentang baris opsional (0-based, inklusif) -> statistik pilihan persegi panjang
+            row_start = max(0, int(data.get("row_start") or 0))
+            row_end = int(data["row_end"]) if data.get("row_end") is not None else None
+        except (TypeError, ValueError):
+            return jsonify({"error": "row_start/row_end harus angka."}), 400
+        stats = column_stats(records, [position[n] for n in names], row_start, row_end)
         return jsonify({"rows": len(records), "stats": {n: stats[position[n]] for n in names}})
 
     @app.route("/api/formula-suggest", methods=["POST"])
