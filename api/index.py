@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 from lib import db
 from lib import excel_engine
 from lib import chat_engine
+from lib import formula_engine
 
 app = Flask(
     __name__,
@@ -25,6 +26,9 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
 MAX_UPLOAD_MB = 20
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+
+# Saran rumus untuk sel yang dipilih di tab Rumus: POST /api/formula-suggest
+formula_engine.register_routes(app)
 
 
 @app.before_request
