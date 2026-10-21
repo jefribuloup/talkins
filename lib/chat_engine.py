@@ -29,7 +29,11 @@ SYSTEM_PROMPT = (
     "dengan jelas, boleh sertakan angka/insight, dan gunakan bahasa yang sama dengan user. "
     "Jika user minta ubah/olah data, jelaskan hasilnya secara naratif (perubahan data yang "
     "sesungguhnya dilakukan lewat fitur manipulasi terpisah di UI, bukan oleh chat ini). "
-    "Jika informasi tidak cukup dari profil data, katakan dengan jujur keterbatasannya.\n\n"
+    "Jika informasi tidak cukup dari profil data, katakan dengan jujur keterbatasannya. "
+    "Data disajikan sebagai grid mentah seperti di Excel: kolom dirujuk dengan huruf (A, B, C...) "
+    "dan baris dengan nomor baris (1, 2, 3...). TIDAK ada baris header khusus — kalau baris tertentu "
+    "terlihat berisi judul/label kolom, simpulkan sendiri dari isinya dan rujuk selnya dengan alamat "
+    "seperti B3.\n\n"
     "Format jawaban pakai Markdown ringan supaya enak dibaca di chat (jangan berlebihan):\n"
     "- **Tebalkan** istilah kunci, nama sheet/kolom, dan angka penting — jangan seluruh kalimat.\n"
     "- Pakai bullet list ('- ') untuk poin-poin sejenis, numbered list ('1. ') kalau urutan penting.\n"
@@ -54,7 +58,7 @@ def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
     df = records_to_df(records, columns)
 
     lines = [f"### Sheet: {sheet_name} ({len(df)} baris, {len(columns)} kolom)"]
-    lines.append(f"Kolom: {', '.join(columns)}")
+    lines.append(f"Kolom (huruf Excel): {', '.join(columns)}")
 
     formula_columns = db.get_formula_columns(file_id, sheet_name)
     if formula_columns:
@@ -67,9 +71,11 @@ def _profile_sheet(file_id, sheet_name, max_sample_rows=5, max_cat_values=5):
             "hitungannya, bukan input manual): " + "; ".join(parts)
         )
 
-    sample = df.head(max_sample_rows)
-    lines.append("Contoh data:")
-    lines.append(sample.to_csv(index=False))
+    # Baris-baris pertama apa adanya, diberi nomor baris Excel (mulai 1). Tidak ada header.
+    sample = df.head(max_sample_rows).copy()
+    sample.index = sample.index + 1
+    lines.append(f"{len(sample)} baris pertama (kolom 'baris' = nomor baris Excel):")
+    lines.append(sample.to_csv(index=True, index_label="baris"))
 
     for col in df.columns:
         series = pd.to_numeric(df[col], errors="coerce")
@@ -120,7 +126,20 @@ def _sheet_index_text(file_id, sheet_names):
     lines = []
     for s in sheet_names:
         cols = _get_columns(file_id, s)
-        lines.append(f"- {s}: {', '.join(cols) if cols else '(tidak ada kolom terbaca)'}")
+        # Tidak ada header -> beri petunjuk isi sheet dari beberapa sel teks pertama
+        hint = []
+        for row in db.get_sheet_head(file_id, s, 3):
+            for v in row:
+                if isinstance(v, str) and v.strip():
+                    hint.append(v.strip()[:30])
+                if len(hint) >= 8:
+                    break
+            if len(hint) >= 8:
+                break
+        lines.append(
+            f"- {s}: {len(cols)} kolom"
+            + (f"; sel teks awal: {' | '.join(hint)}" if hint else "")
+        )
     return "\n".join(lines)
 
 
