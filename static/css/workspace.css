@@ -78,10 +78,13 @@
   overscroll-behavior: contain;
 }
 
+/* Grid virtual gaya Excel: lebar kolom & tinggi baris TETAP (harus sama dgn ROW_H/COL_W/
+   GUTTER_W/HEAD_H di workspace.js), supaya posisi scroll cocok dengan baris/kolom yang dirender. */
 .data-table {
   border-collapse: separate;
   border-spacing: 0;
-  width: 100%;
+  table-layout: fixed;
+  width: 0;               /* lebar sebenarnya diatur lewat JS */
   font-family: var(--font-mono);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
@@ -89,10 +92,17 @@
 
 .data-table th,
 .data-table td {
-  border: 1px solid var(--grid-line);
-  padding: 7px 10px;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 8px;
+  line-height: 25px;
+  border: 0;
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
   text-align: left;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .data-table th {
@@ -104,32 +114,22 @@
   font-weight: 500;
 }
 
-/* ---------- Header gaya spreadsheet: baris huruf (A, B, C) + baris nama kolom ---------- */
+/* Penyangga untuk bagian grid yang tidak dirender (virtual scroll) */
+.data-table td.spacer,
+.data-table th.spacer { padding: 0; border: 0; background: transparent; }
+.data-table th.spacer { background: var(--panel-raised); border-bottom: 1px solid var(--grid-line); }
+.data-table tr.spacer-row td.spacer { height: auto; }
+.data-table tbody tr.spacer-row:hover { background: none; }
 
-.data-table { --letters-h: 26px; }
+/* ---------- Baris huruf kolom (A, B, C ...) ---------- */
 
-/* Dua baris header sama-sama sticky; tinggi baris huruf dikunci supaya baris nama
-   menempel tepat di bawahnya (dikurangi 1px agar garis border tidak dobel). */
-.data-table .head-letters th {
-  top: 0;
-  height: var(--letters-h);
-  box-sizing: border-box;
-  padding-top: 0;
-  padding-bottom: 0;
-  line-height: calc(var(--letters-h) - 2px);
-}
-.data-table .head-names th { top: calc(var(--letters-h) - 1px); }
+.data-table .head-letters th { top: 0; }
 
 .data-table th.col-letter {
   text-align: center;
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--text-muted);
-}
-.data-table th.col-name {
-  max-width: 260px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* ---------- Pemilihan sel gaya Excel ---------- */
@@ -143,8 +143,7 @@
 .data-table td.row-gutter {
   position: sticky;
   left: 0;
-  min-width: 40px;
-  padding-left: 8px;
+  padding-left: 6px;
   padding-right: 8px;
   text-align: right;
   font-family: var(--font-mono);
@@ -155,6 +154,7 @@
 }
 .data-table td.row-gutter { z-index: 1; cursor: pointer; }
 .data-table th.row-gutter { z-index: 3; cursor: default; }
+.data-table th.row-gutter.corner { cursor: pointer; }
 
 .data-table td.row-gutter:hover,
 .data-table th[data-col]:hover { color: var(--accent); }
@@ -693,8 +693,7 @@
   /* Tabel lebih padat, sel panjang dipotong (isi lengkap tetap ada di tab Rumus) */
   .data-table { font-size: 12px; }
   .data-table th,
-  .data-table td { padding: 6px 8px; }
-  .data-table td { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+  .data-table td { padding: 0 6px; }
 
   /* Pager: satu baris */
   .pager { flex-wrap: nowrap; gap: 8px; padding: 8px 10px; }
