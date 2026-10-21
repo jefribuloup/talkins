@@ -1069,7 +1069,7 @@
   // ---------- Tab Rekap: analisa otomatis sheet (duplikat, format, error, statistik) ----------
   // Semua angka dihitung server dari data; di sini hanya ditampilkan. Klik "Lihat sel" pada sebuah
   // temuan -> sel bermasalahnya dipilih & tabel digulir ke sana.
-  const recap = { data: null, stale: true, loading: false, token: 0 };
+  const recap = { data: null, stale: true, loading: false, token: 0, reg: {} };
 
   function recapActive() { return !tabViewRecap.hidden; }
 
@@ -1101,6 +1101,168 @@
     return new Intl.NumberFormat(currentLang() === "en" ? "en-US" : "id-ID", { maximumFractionDigits: 2 }).format(n);
   }
 
+  // ---------- Grafik & tabel ringkasan ala Excel (SVG murni, tanpa library) ----------
+  const PALETTE = ["#4472C4", "#ED7D31", "#A5A5A5", "#FFC000", "#5B9BD5", "#70AD47", "#264478", "#9E480E"];
+
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const f = v / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+  }
+
+  function compactNum(n) {
+    const a = Math.abs(n);
+    if (a >= 1e9) return +(n / 1e9).toFixed(1) + "M";
+    if (a >= 1e6) return +(n / 1e6).toFixed(1) + "jt";
+    if (a >= 1e3) return +(n / 1e3).toFixed(1) + "rb";
+    return String(+n.toFixed(2));
+  }
+
+  const clip = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + "…" : String(s));
+
+  // Grafik kolom (vertikal). items: [{label, value, hit?}]. opts.edges = hanya label tepi (histogram).
+  function columnChart(id, items, opts = {}) {
+    const W = 360, H = 190, ml = 40, mr = 8, mt = 10, mb = opts.edges ? 22 : 38;
+    const pw = W - ml - mr, ph = H - mt - mb;
+    const max = niceMax(Math.max(...items.map((x) => x.value), 1));
+    const bw = pw / items.length;
+    const gap = opts.gap === undefined ? 0.3 : opts.gap;
+    let g = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = mt + ph - (ph * i) / 4;
+      g += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" class="rc-grid"/>` +
+        `<text x="${ml - 4}" y="${y + 3}" text-anchor="end" class="rc-axis">${compactNum((max * i) / 4)}</text>`;
+    }
+    items.forEach((x, i) => {
+      const h = (ph * x.value) / max, bx = ml + i * bw + (bw * gap) / 2, w = bw * (1 - gap);
+      const hit = x.hit ? ` class="rc-hit" data-chart="${id}" data-i="${i}"` : "";
+      g += `<rect${hit} x="${bx}" y="${mt + ph - h}" width="${Math.max(w, 1)}" height="${h}" fill="${x.color || PALETTE[0]}"><title>${escapeHtml(x.label)}: ${recapNum(x.value)}</title></rect>`;
+      if (!opts.edges) {
+        const cx = bx + w / 2, cy = mt + ph + 8;
+        g += `<text x="${cx}" y="${cy}" text-anchor="end" transform="rotate(-30 ${cx} ${cy})" class="rc-axis">${escapeHtml(clip(x.label, 9))}</text>`;
+      }
+    });
+    if (opts.edges) {
+      g += `<text x="${ml}" y="${H - 6}" class="rc-axis">${escapeHtml(items[0].label)}</text>` +
+        `<text x="${W - mr}" y="${H - 6}" text-anchor="end" class="rc-axis">${escapeHtml(items[items.length - 1].labelEnd || "")}</text>`;
+    }
+    g += `<line x1="${ml}" x2="${W - mr}" y1="${mt + ph}" y2="${mt + ph}" class="rc-axisline"/>`;
+    return `<svg class="rc-svg" viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+  }
+
+  // Pie / donut + legenda
+  function pieChart(id, items) {
+    const total = items.reduce((n, x) => n + x.value, 0) || 1;
+    const cx = 80, cy = 80, R = 72, r = 40;
+    let a0 = -Math.PI / 2, paths = "", legend = "";
+    items.forEach((x, i) => {
+      const frac = x.value / total, a1 = a0 + frac * 2 * Math.PI, large = frac > 0.5 ? 1 : 0;
+      const col = PALETTE[i % PALETTE.length];
+      const pt = (rad, a) => `${cx + rad * Math.cos(a)} ${cy + rad * Math.sin(a)}`;
+      const d = frac >= 0.9999
+        ? `M ${cx - R} ${cy} A ${R} ${R} 0 1 1 ${cx + R} ${cy} A ${R} ${R} 0 1 1 ${cx - R} ${cy} M ${cx - r} ${cy} A ${r} ${r} 0 1 0 ${cx + r} ${cy} A ${r} ${r} 0 1 0 ${cx - r} ${cy}`
+        : `M ${pt(R, a0)} A ${R} ${R} 0 ${large} 1 ${pt(R, a1)} L ${pt(r, a1)} A ${r} ${r} 0 ${large} 0 ${pt(r, a0)} Z`;
+      const hit = x.hit ? ` class="rc-hit" data-chart="${id}" data-i="${i}"` : "";
+      paths += `<path${hit} d="${d}" fill="${col}" fill-rule="evenodd"><title>${escapeHtml(x.label)}: ${recapNum(x.value)}</title></path>`;
+      legend += `<g transform="translate(168 ${14 + i * 17})"><rect width="10" height="10" y="-9" fill="${col}"/>` +
+        `<text x="15" y="0" class="rc-axis rc-legend-t">${escapeHtml(clip(x.label, 16))} · ${Math.round(frac * 100)}%</text></g>`;
+      a0 = a1;
+    });
+    const H = Math.max(160, 24 + items.length * 17);
+    return `<svg class="rc-svg" viewBox="0 0 360 ${H}" role="img">${paths}${legend}</svg>`;
+  }
+
+  // Grafik garis (tren). points: [{label, values:[...]}], names: nama tiap seri
+  function lineChart(points, names) {
+    const W = 360, H = 200, ml = 44, mr = 10, mt = 22, mb = 24;
+    const pw = W - ml - mr, ph = H - mt - mb;
+    const max = niceMax(Math.max(...points.flatMap((p) => p.values), 1));
+    const X = (i) => ml + (pw * i) / Math.max(points.length - 1, 1);
+    const Y = (v) => mt + ph - (ph * v) / max;
+    let g = "";
+    for (let i = 0; i <= 4; i++) {
+      const y = mt + ph - (ph * i) / 4;
+      g += `<line x1="${ml}" x2="${W - mr}" y1="${y}" y2="${y}" class="rc-grid"/>` +
+        `<text x="${ml - 4}" y="${y + 3}" text-anchor="end" class="rc-axis">${compactNum((max * i) / 4)}</text>`;
+    }
+    names.forEach((nm, s) => {
+      const col = PALETTE[s % PALETTE.length];
+      g += `<polyline fill="none" stroke="${col}" stroke-width="2" points="${points.map((p, i) => `${X(i)},${Y(p.values[s])}`).join(" ")}"/>`;
+      points.forEach((p, i) => {
+        g += `<circle cx="${X(i)}" cy="${Y(p.values[s])}" r="2.6" fill="${col}"><title>${escapeHtml(p.label)} · ${escapeHtml(nm)}: ${recapNum(p.values[s])}</title></circle>`;
+      });
+      g += `<g transform="translate(${ml + s * 90} 10)"><rect width="10" height="3" y="-3" fill="${col}"/><text x="14" y="1" class="rc-axis">${escapeHtml(nm)}</text></g>`;
+    });
+    const ticks = [0, Math.floor((points.length - 1) / 2), points.length - 1];
+    [...new Set(ticks)].forEach((i) => {
+      g += `<text x="${X(i)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"}" class="rc-axis">${escapeHtml(points[i].label)}</text>`;
+    });
+    return `<svg class="rc-svg" viewBox="0 0 ${W} ${H}" role="img">${g}</svg>`;
+  }
+
+  // Grafik kategori yang bisa diganti jenisnya (Kolom / Batang / Pie)
+  function categoryItems(cat) {
+    const items = cat.top.map((x) => ({ label: x.value, value: x.count, hit: x.targets.length > 0, targets: x.targets }));
+    if (cat.others > 0) items.push({ label: t("workspace.recap.pivot.others"), value: cat.others, hit: false, targets: [] });
+    return items;
+  }
+
+  function drawCategory(ci, type) {
+    const cat = recap.data.categories[ci];
+    const box = document.getElementById("rcc-" + ci);
+    if (!cat || !box) return;
+    const id = "cat" + ci, items = categoryItems(cat);
+    recap.reg[id] = items;
+    let body;
+    if (type === "pie") body = pieChart(id, items);
+    else if (type === "bar") {
+      const max = Math.max(...items.map((x) => x.value), 1);
+      body = `<div class="rc-bars">` + items.map((x, i) =>
+        `<div class="rc-bar-row rc-bar-wide${x.hit ? " rc-hit" : ""}" data-chart="${id}" data-i="${i}"><span class="rc-bar-k">${escapeHtml(clip(x.label, 14))}</span>` +
+        `<span class="rc-bar"><span class="rc-bar-fill" style="width:${(100 * x.value) / max}%;background:${PALETTE[i % PALETTE.length]}"></span></span>` +
+        `<span class="rc-bar-v">${x.value}</span></div>`).join("") + `</div>`;
+    } else body = columnChart(id, items.map((x, i) => ({ ...x, color: PALETTE[i % PALETTE.length] })));
+    box.innerHTML = body;
+    box.parentElement.querySelectorAll(".rc-toggle button").forEach((b) => b.classList.toggle("active", b.dataset.type === type));
+  }
+
+  function toggleHtml(ci) {
+    return `<div class="rc-toggle">` + ["column", "bar", "pie"].map((ty) =>
+      `<button type="button" data-ci="${ci}" data-type="${ty}">${t("workspace.recap.type." + ty)}</button>`).join("") + `</div>`;
+  }
+
+  // Tabel ringkasan ala PivotTable: data bars (Hitung & Jumlah) + skala warna (Rata-rata)
+  function pivotHtml(pv, pi) {
+    const bar = (v, max, col) => {
+      const w = max > 0 ? Math.max(0, Math.min(100, (100 * v) / max)) : 0;
+      return `background:linear-gradient(90deg,${col} ${w}%,transparent ${w}%)`;
+    };
+    const rows = pv.rows;
+    const maxCount = Math.max(...rows.map((r) => r.count), 1);
+    const maxSum = pv.measures.map((_, j) => Math.max(...rows.map((r) => r.m[j].sum), 1));
+    const avgs = pv.measures.map((_, j) => rows.map((r) => r.m[j].avg).filter((v) => v !== null));
+    const minAvg = avgs.map((a) => (a.length ? Math.min(...a) : 0));
+    const maxAvg = avgs.map((a) => (a.length ? Math.max(...a) : 0));
+    let h = `<tr><th>${escapeHtml(pv.col)}</th><th>${t("workspace.recap.pivot.count")}</th>` +
+      pv.measures.map((m) => `<th>${t("workspace.recap.pivot.sum")} ${escapeHtml(m)}</th><th>${t("workspace.recap.pivot.avg")} ${escapeHtml(m)}</th>`).join("") + `</tr>`;
+    rows.forEach((r) => {
+      const hit = r.src ? ` class="rc-hit" data-pivot="${r.src.join(",")}"` : "";
+      h += `<tr${hit}><td class="rc-pk">${escapeHtml(r.label === null ? t("workspace.recap.pivot.others") : r.label)}</td>` +
+        `<td style="${bar(r.count, maxCount, "rgba(68,114,196,.35)")}">${recapNum(r.count)}</td>` +
+        r.m.map((m, j) => {
+          const a = m.avg, span = maxAvg[j] - minAvg[j];
+          const alpha = a === null ? 0 : 0.08 + (span > 0 ? (0.42 * (a - minAvg[j])) / span : 0.2);
+          return `<td style="${bar(m.sum, maxSum[j], "rgba(112,173,71,.35)")}">${recapNum(m.sum)}</td>` +
+            `<td style="background:rgba(237,125,49,${alpha.toFixed(2)})">${a === null ? "–" : recapNum(a)}</td>`;
+        }).join("") + `</tr>`;
+    });
+    const tot = pv.total;
+    h += `<tr class="rc-total"><td>${t("workspace.recap.pivot.total")}</td><td>${recapNum(tot.count)}</td>` +
+      tot.m.map((m) => `<td>${recapNum(m.sum)}</td><td>${m.avg === null ? "–" : recapNum(m.avg)}</td>`).join("") + `</tr>`;
+    return `<div class="fp-cell rc-tablewrap"><table class="rc-table rc-pivot" data-pi="${pi}">${h}</table></div>`;
+  }
+
   function renderRecap(d) {
     const s = d.summary;
     const C = 2 * Math.PI * 26;
@@ -1129,6 +1291,7 @@
         `<div class="fp-note">${escapeHtml(f.detail)}</div>${btn}</div>`;
     });
 
+    recap.reg = {};
     if (d.column_fill.length) {
       h += `<div class="rc-title">${t("workspace.recap.fill")}</div><div class="fp-cell rc-bars">` +
         d.column_fill.map((c) =>
@@ -1136,6 +1299,35 @@
           `<span class="rc-bar"><span class="rc-bar-fill${c.pct < 50 ? " rc-low" : ""}" style="width:${c.pct}%"></span></span>` +
           `<span class="rc-bar-v">${c.pct}%</span></div>`).join("") + `</div>`;
     }
+
+    // Grafik komposisi kategori (jenis grafik bisa diganti) -- klik bagian grafik = sorot selnya di tabel
+    d.categories.forEach((c, ci) => {
+      h += `<div class="rc-title">${t("workspace.recap.categories")} · ${escapeHtml(c.col)}</div>` +
+        `<div class="fp-cell rc-chartcard">${toggleHtml(ci)}<div class="rc-chart" id="rcc-${ci}"></div>` +
+        `<div class="fp-note">${t("workspace.recap.click")}</div></div>`;
+    });
+
+    // Histogram sebaran angka
+    (d.histograms || []).forEach((hg, hi) => {
+      const id = "hist" + hi;
+      const items = hg.bins.map((b) => ({ label: recapNum(b.lo), labelEnd: recapNum(b.hi), value: b.count, hit: b.targets.length > 0, targets: b.targets }));
+      recap.reg[id] = items;
+      h += `<div class="rc-title">${t("workspace.recap.hist")} · ${escapeHtml(hg.col)}</div>` +
+        `<div class="fp-cell rc-chartcard">${columnChart(id, items, { edges: true, gap: 0.06 })}` +
+        `<div class="fp-note">${t("workspace.recap.click")}</div></div>`;
+    });
+
+    // Grafik garis tren
+    if (d.trend) {
+      const tr = d.trend;
+      h += `<div class="rc-title">${t("workspace.recap.trend." + tr.granularity)} · ${escapeHtml(tr.date_col)}</div>` +
+        `<div class="fp-cell rc-chartcard">${lineChart(tr.points, tr.cols)}</div>`;
+    }
+
+    // Tabel ringkasan (pivot)
+    (d.pivots || []).forEach((pv, pi) => {
+      h += `<div class="rc-title">${t("workspace.recap.pivot")} · ${escapeHtml(pv.col)}</div>${pivotHtml(pv, pi)}`;
+    });
 
     if (d.numeric.length) {
       h += `<div class="rc-title">${t("workspace.recap.numeric")}</div><div class="fp-cell rc-tablewrap"><table class="rc-table"><tr>` +
@@ -1147,35 +1339,45 @@
         `</table></div>`;
     }
 
-    d.categories.forEach((c) => {
-      const max = Math.max(...c.top.map((x) => x.count), 1);
-      h += `<div class="rc-title">${t("workspace.recap.categories")} · ${escapeHtml(c.col)}</div><div class="fp-cell rc-bars">` +
-        c.top.map((x) =>
-          `<div class="rc-bar-row rc-bar-wide"><span class="rc-bar-k">${escapeHtml(x.value)}</span>` +
-          `<span class="rc-bar"><span class="rc-bar-fill" style="width:${(100 * x.count) / max}%"></span></span>` +
-          `<span class="rc-bar-v">${x.count}</span></div>`).join("") + `</div>`;
-    });
-
     if (d.dates.length) {
       h += `<div class="rc-title">${t("workspace.recap.dates")}</div><div class="fp-cell">` +
         d.dates.map((x) => `<p class="rc-date"><strong>${escapeHtml(x.col)}</strong>: ${escapeHtml(x.min)} → ${escapeHtml(x.max)} (${x.n})</p>`).join("") + `</div>`;
     }
     recapPanel.innerHTML = h;
+    d.categories.forEach((_, ci) => drawCategory(ci, "column"));
+  }
+
+  function selectTargets(targets) {
+    if (!targets || !targets.length || !state.meta) return;
+    state.sel = {
+      rects: targets.map(([r1, c1, r2, c2]) => ({ r1, c1, r2, c2 })),
+      anchor: { r: targets[0][0], c: targets[0][1] },
+    };
+    state.precedents.clear();
+    selectionChanged();
+    scrollToCell(targets[0][0], targets[0][1]);
   }
 
   recapPanel.addEventListener("click", (e) => {
     if (e.target.closest(".rc-refresh")) { loadRecap(); return; }
+    const tog = e.target.closest(".rc-toggle button");
+    if (tog && recap.data) { drawCategory(Number(tog.dataset.ci), tog.dataset.type); return; }
+    const piv = e.target.closest("tr[data-pivot]");
+    if (piv && recap.data) {
+      const [ci, gi] = piv.dataset.pivot.split(",").map(Number);
+      selectTargets(recap.data.categories[ci].top[gi].targets);
+      return;
+    }
+    const hit = e.target.closest("[data-chart]");
+    if (hit) {
+      const item = (recap.reg[hit.dataset.chart] || [])[Number(hit.dataset.i)];
+      if (item) selectTargets(item.targets);
+      return;
+    }
     const btn = e.target.closest(".rc-show");
-    if (!btn || !recap.data || !state.meta) return;
+    if (!btn || !recap.data) return;
     const f = recap.data.findings[Number(btn.dataset.i)];
-    if (!f || !f.targets.length) return;
-    state.sel = {
-      rects: f.targets.map(([r1, c1, r2, c2]) => ({ r1, c1, r2, c2 })),
-      anchor: { r: f.targets[0][0], c: f.targets[0][1] },
-    };
-    state.precedents.clear();
-    selectionChanged();
-    scrollToCell(f.targets[0][0], f.targets[0][1]);
+    if (f) selectTargets(f.targets);
   });
 
   // ---------- Toolbar manipulasi ----------
