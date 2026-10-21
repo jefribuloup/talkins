@@ -19,13 +19,89 @@ from decimal import Decimal, ROUND_HALF_UP
 MAX_CELLS = 20000
 MAX_PREVIEW = 5
 
-CAT_SUMMARY = "Ringkasan angka"
-CAT_COUNT = "Hitung isi"
-CAT_TEXT = "Teks"
-CAT_DATE = "Tanggal"
-CAT_LOOKUP = "Pencarian"
-CAT_DERIVED = "Kolom turunan"
+CAT_SUMMARY, CAT_COUNT, CAT_TEXT, CAT_DATE, CAT_LOOKUP, CAT_DERIVED = (
+    "summary", "count", "text", "date", "lookup", "derived")
 CATEGORY_ORDER = [CAT_SUMMARY, CAT_COUNT, CAT_DERIVED, CAT_TEXT, CAT_DATE, CAT_LOOKUP]
+
+_TXT = {
+    "id": {
+        "cat.summary": "Ringkasan angka", "cat.count": "Hitung isi", "cat.derived": "Kolom turunan",
+        "cat.text": "Teks", "cat.date": "Tanggal", "cat.lookup": "Pencarian",
+        "above": "Di atas rata-rata", "below": "Sama/di bawah",
+        "d.sum": "Menjumlahkan semua angka di pilihan.",
+        "d.average": "Rata-rata semua angka di pilihan.",
+        "d.min": "Angka terkecil.",
+        "d.max": "Angka terbesar.",
+        "d.median": "Nilai tengah setelah diurutkan.",
+        "d.stdev": "Simpangan baku sampel: seberapa menyebar angkanya.",
+        "d.counta": "Jumlah sel yang tidak kosong.",
+        "d.count": "Jumlah sel yang berisi angka.",
+        "d.countblank": "Jumlah sel kosong; berguna untuk mencari data yang belum terisi.",
+        "d.countif": "Berapa kali {label} muncul (nilai paling sering di pilihan).",
+        "d.unique": "Jumlah nilai yang berbeda. Perlu Excel 365 atau Google Sheets.",
+        "d.round": "Membulatkan ke bilangan bulat. Isi ke bawah untuk seluruh kolom.",
+        "d.if": "Memberi label tiap baris terhadap rata-rata kolom.",
+        "d.rank": "Peringkat tiap nilai, 1 untuk yang terbesar.",
+        "d.share": "Porsi tiap baris terhadap jumlah kolom.",
+        "d.upper": "Mengubah semua huruf jadi kapital.",
+        "d.lower": "Mengubah semua huruf jadi kecil.",
+        "d.proper": "Huruf pertama tiap kata jadi kapital.",
+        "d.trim": "Menghapus spasi berlebih di awal, akhir, dan tengah teks.",
+        "d.len": "Jumlah karakter tiap sel.",
+        "d.textjoin": "Menggabungkan isi sel satu baris, melewati sel kosong. Excel 2019 ke atas.",
+        "d.year": "Mengambil tahun dari tanggal.",
+        "d.month": "Mengambil bulan (1-12).",
+        "d.day": "Mengambil tanggal (1-31).",
+        "d.sumif": "Jumlah kolom {vc} untuk baris yang kolom {kc}-nya {label}.",
+        "d.vlookup": "Mencari isi {key} di kolom pertama pilihan, lalu mengambil nilai kolom ke-2 "
+                     "di baris yang cocok. Jika ada duplikat, yang dipakai kecocokan pertama.",
+        "d.hlookup": "Mencari isi {key} di baris pertama pilihan, lalu mengambil nilai baris ke-2 "
+                     "di kolom yang cocok.",
+    },
+    "en": {
+        "cat.summary": "Number summary", "cat.count": "Counting", "cat.derived": "Derived columns",
+        "cat.text": "Text", "cat.date": "Dates", "cat.lookup": "Lookup",
+        "above": "Above average", "below": "At or below",
+        "d.sum": "Adds up every number in the selection.",
+        "d.average": "Average of all numbers in the selection.",
+        "d.min": "Smallest number.",
+        "d.max": "Largest number.",
+        "d.median": "Middle value once sorted.",
+        "d.stdev": "Sample standard deviation: how spread out the numbers are.",
+        "d.counta": "Number of non-empty cells.",
+        "d.count": "Number of cells containing numbers.",
+        "d.countblank": "Number of empty cells; handy for spotting missing data.",
+        "d.countif": "How many times {label} appears (the most frequent value in the selection).",
+        "d.unique": "Number of distinct values. Needs Excel 365 or Google Sheets.",
+        "d.round": "Rounds to a whole number. Fill down for the whole column.",
+        "d.if": "Labels each row against the column average.",
+        "d.rank": "Rank of each value, 1 being the largest.",
+        "d.share": "Each row's share of the column total.",
+        "d.upper": "Converts all letters to uppercase.",
+        "d.lower": "Converts all letters to lowercase.",
+        "d.proper": "Capitalizes the first letter of each word.",
+        "d.trim": "Removes extra spaces at the start, end, and middle of text.",
+        "d.len": "Number of characters in each cell.",
+        "d.textjoin": "Joins the cells of one row, skipping empty ones. Excel 2019 or later.",
+        "d.year": "Extracts the year from a date.",
+        "d.month": "Extracts the month (1-12).",
+        "d.day": "Extracts the day of the month (1-31).",
+        "d.sumif": "Sum of column {vc} for rows where column {kc} is {label}.",
+        "d.vlookup": "Looks up {key} in the first column of the selection and returns column 2 "
+                     "from the matching row. With duplicates, the first match wins.",
+        "d.hlookup": "Looks up {key} in the first row of the selection and returns row 2 "
+                     "from the matching column.",
+    },
+}
+
+
+def _make_t(lang):
+    table = _TXT.get(lang, _TXT["id"])
+
+    def T(_k, **kw):
+        return table[_k].format(**kw) if kw else table[_k]
+    return T
+
 
 _DATE_FORMATS = ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d")
 
@@ -179,14 +255,16 @@ def _col_values(grid, j, kind, limit):
     return [row[j] for row in grid if _kind(row[j]) == kind][:limit]
 
 
-def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_PREVIEW):
+def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_PREVIEW, lang="id"):
     """Kembalikan {'selection': {...}, 'suggestions': [...]} untuk blok sel `rows`.
 
     start_row/start_col: posisi sel kiri-atas pilihan di lembar Excel hasil ekspor
     (1-based), dipakai untuk menulis alamat seperti B2:B10.
     sep: pemisah argumen rumus; pakai ";" untuk Excel berlokal Indonesia.
+    lang: "id" atau "en" untuk teks deskripsi dan kategori.
     """
     sep = sep if sep in (",", ";") else ","
+    T = _make_t(lang)
     grid = _normalize(rows)
     nr = len(grid)
     nc = len(grid[0]) if nr else 0
@@ -211,29 +289,29 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
     # --- ringkasan angka (seluruh pilihan) ---
     if nums and len(nums) / len(nonblank) >= 0.5:
         out.append(_single("sum", "SUM", CAT_SUMMARY, call("SUM", full),
-                           "Menjumlahkan semua angka di pilihan.", sum(nums)))
+                           T("d.sum"), sum(nums)))
         out.append(_single("average", "AVERAGE", CAT_SUMMARY, call("AVERAGE", full),
-                           "Rata-rata semua angka di pilihan.", sum(nums) / len(nums)))
+                           T("d.average"), sum(nums) / len(nums)))
         out.append(_single("min", "MIN", CAT_SUMMARY, call("MIN", full),
-                           "Angka terkecil.", min(nums)))
+                           T("d.min"), min(nums)))
         out.append(_single("max", "MAX", CAT_SUMMARY, call("MAX", full),
-                           "Angka terbesar.", max(nums)))
+                           T("d.max"), max(nums)))
         out.append(_single("median", "MEDIAN", CAT_SUMMARY, call("MEDIAN", full),
-                           "Nilai tengah setelah diurutkan.", statistics.median(nums)))
+                           T("d.median"), statistics.median(nums)))
         if len(nums) >= 2:
             out.append(_single("stdev", "STDEV.S", CAT_SUMMARY, call("STDEV.S", full),
-                               "Simpangan baku sampel: seberapa menyebar angkanya.",
+                               T("d.stdev"),
                                statistics.stdev(nums)))
 
     # --- hitung isi ---
     out.append(_single("counta", "COUNTA", CAT_COUNT, call("COUNTA", full),
-                       "Jumlah sel yang tidak kosong.", len(nonblank)))
+                       T("d.counta"), len(nonblank)))
     if nums:
         out.append(_single("count", "COUNT", CAT_COUNT, call("COUNT", full),
-                           "Jumlah sel yang berisi angka.", len(nums)))
+                           T("d.count"), len(nums)))
     if n_blank:
         out.append(_single("countblank", "COUNTBLANK", CAT_COUNT, call("COUNTBLANK", full),
-                           "Jumlah sel kosong; berguna untuk mencari data yang belum terisi.", n_blank))
+                           T("d.countblank"), n_blank))
 
     non_num = [v for v, k in zip(flat, flat_kinds) if k in ("text", "date")]
     if non_num:
@@ -243,14 +321,14 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
         if top_n >= 2:
             out.append(_single("countif", "COUNTIF", CAT_COUNT,
                                call("COUNTIF", full, _criteria(top_label)),
-                               f"Berapa kali {_q(top_label)} muncul (nilai paling sering di pilihan).",
+                               T("d.countif", label=_q(top_label)),
                                top_n))
     if len(nonblank) >= 2:
         distinct = {(_to_num(v) if _kind(v) == "num" else str(v).strip().casefold())
                     for v in nonblank}
         out.append(_single("unique", "COUNTA + UNIQUE", CAT_COUNT,
                            "=COUNTA(UNIQUE(" + full + "))",
-                           "Jumlah nilai yang berbeda. Perlu Excel 365 atau Google Sheets.",
+                           T("d.unique"),
                            len(distinct)))
 
     # --- kolom turunan dari kolom angka ---
@@ -263,26 +341,26 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
         pv = [_to_num(v) for v in nvals][:max_preview]
         if any(not float(x).is_integer() for x in (_to_num(v) for v in nvals)):
             out.append(_per_row("round", "ROUND", CAT_DERIVED, call("ROUND", first, "0"),
-                                "Membulatkan ke bilangan bulat. Isi ke bawah untuk seluruh kolom.",
+                                T("d.round"),
                                 [(x, _round_half_up(x, 0)) for x in pv]))
         if len(nvals) >= 2:
             avg = sum(_to_num(v) for v in nvals) / len(nvals)
             out.append(_per_row(
                 "if", "IF + AVERAGE", CAT_DERIVED,
-                call("IF", f"{first}>AVERAGE({col_abs})", _q("Di atas rata-rata"), _q("Sama/di bawah")),
-                "Memberi label tiap baris terhadap rata-rata kolom.",
-                [(x, "Di atas rata-rata" if x > avg else "Sama/di bawah") for x in pv]))
+                call("IF", f"{first}>AVERAGE({col_abs})", _q(T("above")), _q(T("below"))),
+                T("d.if"),
+                [(x, T("above") if x > avg else T("below")) for x in pv]))
             allnums = [_to_num(v) for v in nvals]
             out.append(_per_row(
                 "rank", "RANK", CAT_DERIVED, call("RANK", first, col_abs, "0"),
-                "Peringkat tiap nilai, 1 untuk yang terbesar.",
+                T("d.rank"),
                 [(x, 1 + sum(1 for y in allnums if y > x)) for x in pv]))
             total = sum(allnums)
             if total > 0 and all(x >= 0 for x in allnums):
                 out.append(_per_row(
                     "share", "Persentase dari total", CAT_DERIVED,
                     call("TEXT", f"{first}/SUM({col_abs})", _q("0.0%")),
-                    "Porsi tiap baris terhadap jumlah kolom.",
+                    T("d.share"),
                     [(x, f"{x / total * 100:.1f}%") for x in pv]))
 
     # --- teks ---
@@ -292,17 +370,17 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
         first = a1(r1, c1 + jt)
         pv = tvals[:max_preview]
         out.append(_per_row("upper", "UPPER", CAT_TEXT, call("UPPER", first),
-                            "Mengubah semua huruf jadi kapital.", [(s, s.upper()) for s in pv]))
+                            T("d.upper"), [(s, s.upper()) for s in pv]))
         out.append(_per_row("lower", "LOWER", CAT_TEXT, call("LOWER", first),
-                            "Mengubah semua huruf jadi kecil.", [(s, s.lower()) for s in pv]))
+                            T("d.lower"), [(s, s.lower()) for s in pv]))
         out.append(_per_row("proper", "PROPER", CAT_TEXT, call("PROPER", first),
-                            "Huruf pertama tiap kata jadi kapital.", [(s, _proper(s)) for s in pv]))
+                            T("d.proper"), [(s, _proper(s)) for s in pv]))
         if any(re.sub(" +", " ", s).strip(" ") != s for s in tvals):
             out.append(_per_row("trim", "TRIM", CAT_TEXT, call("TRIM", first),
-                                "Menghapus spasi berlebih di awal, akhir, dan tengah teks.",
+                                T("d.trim"),
                                 [(s, re.sub(" +", " ", s).strip(" ")) for s in pv]))
         out.append(_per_row("len", "LEN", CAT_TEXT, call("LEN", first),
-                            "Jumlah karakter tiap sel.", [(s, len(s)) for s in pv]))
+                            T("d.len"), [(s, len(s)) for s in pv]))
 
     if nc >= 2 and any(k in ("text", "date") for k in flat_kinds):
         rows_with_data = [row for row in grid if sum(1 for v in row if not _is_blank(v)) >= 2]
@@ -313,7 +391,7 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
                      for row in rows_with_data[:max_preview]]
             out.append(_per_row("textjoin", "TEXTJOIN", CAT_TEXT,
                                 call("TEXTJOIN", _q(" "), "TRUE", fr),
-                                "Menggabungkan isi sel satu baris, melewati sel kosong. Excel 2019 ke atas.",
+                                T("d.textjoin"),
                                 pairs))
 
     # --- tanggal ---
@@ -322,11 +400,11 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
         dvals = [_to_date(v) for v in _col_values(grid, jd, "date", 10 ** 9)][:max_preview]
         first = a1(r1, c1 + jd)
         out.append(_per_row("year", "YEAR", CAT_DATE, call("YEAR", first),
-                            "Mengambil tahun dari tanggal.", [(d, d.year) for d in dvals]))
+                            T("d.year"), [(d, d.year) for d in dvals]))
         out.append(_per_row("month", "MONTH", CAT_DATE, call("MONTH", first),
-                            "Mengambil bulan (1-12).", [(d, d.month) for d in dvals]))
+                            T("d.month"), [(d, d.month) for d in dvals]))
         out.append(_per_row("day", "DAY", CAT_DATE, call("DAY", first),
-                            "Mengambil tanggal (1-31).", [(d, d.day) for d in dvals]))
+                            T("d.day"), [(d, d.day) for d in dvals]))
 
     # --- SUMIF: kolom teks sebagai kunci, kolom angka sebagai nilai ---
     if nc >= 2 and jt is not None and jn is not None and jt != jn:
@@ -340,8 +418,7 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
             kr = ref(r1, c1 + jt, r2, c1 + jt)
             vr = ref(r1, c1 + jn, r2, c1 + jn)
             out.append(_single("sumif", "SUMIF", CAT_SUMMARY, call("SUMIF", kr, _criteria(label), vr),
-                               f"Jumlah kolom {col_letter(c1 + jn)} untuk baris yang kolom "
-                               f"{col_letter(c1 + jt)}-nya {_q(label)}.", total))
+                               T("d.sumif", vc=col_letter(c1 + jn), kc=col_letter(c1 + jt), label=_q(label)), total))
 
     # --- VLOOKUP / HLOOKUP ---
     if nr >= 2 and nc >= 2 and nr >= nc:
@@ -353,9 +430,7 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
             result = "#N/A" if hit is None else ("0" if _is_blank(res) else res)
             out.append(_single("vlookup", "VLOOKUP", CAT_LOOKUP,
                                call("VLOOKUP", a1(r1 + idx, c1), full, "2", "FALSE"),
-                               f"Mencari isi {a1(r1 + idx, c1)} di kolom pertama pilihan, "
-                               "lalu mengambil nilai kolom ke-2 di baris yang cocok. "
-                               "Jika ada duplikat, yang dipakai kecocokan pertama.",
+                               T("d.vlookup", key=a1(r1 + idx, c1)),
                                result))
     if nr >= 2 and nc >= 2 and nc >= nr:
         jdx = next((j for j in range(nc - 1, -1, -1) if not _is_blank(grid[0][j])), None)
@@ -366,12 +441,13 @@ def analyze_selection(rows, start_row=2, start_col=1, sep=",", max_preview=MAX_P
             result = "#N/A" if hitj is None else ("0" if _is_blank(res) else res)
             out.append(_single("hlookup", "HLOOKUP", CAT_LOOKUP,
                                call("HLOOKUP", a1(r1, c1 + jdx), full, "2", "FALSE"),
-                               f"Mencari isi {a1(r1, c1 + jdx)} di baris pertama pilihan, "
-                               "lalu mengambil nilai baris ke-2 di kolom yang cocok.",
+                               T("d.hlookup", key=a1(r1, c1 + jdx)),
                                result))
 
     order = {c: i for i, c in enumerate(CATEGORY_ORDER)}
     out.sort(key=lambda s: order.get(s["category"], 99))  # sort stabil: urutan dalam kategori terjaga
+    for item in out:
+        item["category"] = T("cat." + item["category"])
 
     return {
         "selection": {
@@ -401,4 +477,5 @@ def register_routes(app):
             start_col = max(1, int(data.get("start_col", 1)))
         except (TypeError, ValueError):
             return jsonify({"error": "start_row/start_col harus angka."}), 400
-        return jsonify(analyze_selection(rows, start_row, start_col, data.get("sep", ",")))
+        lang = data.get("lang") if data.get("lang") in _TXT else "id"
+        return jsonify(analyze_selection(rows, start_row, start_col, data.get("sep", ","), lang=lang))
