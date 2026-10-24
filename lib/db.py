@@ -28,6 +28,10 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS column_letters JSONB NOT NULL DEFAULT '{}'",
     "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS original_meta JSONB NOT NULL DEFAULT '{}'",
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload'",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS content_hash TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS source_key TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_files_session_hash ON files(session_id, content_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_files_session_srckey ON files(session_id, source_key)",
 )
 _schema_ready = False
 
@@ -91,6 +95,8 @@ def init_db():
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS column_letters JSONB NOT NULL DEFAULT '{}';
         ALTER TABLE sheets ADD COLUMN IF NOT EXISTS original_meta JSONB NOT NULL DEFAULT '{}';
         ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload';
+        ALTER TABLE files ADD COLUMN IF NOT EXISTS content_hash TEXT;
+        ALTER TABLE files ADD COLUMN IF NOT EXISTS source_key TEXT;
 
         CREATE TABLE IF NOT EXISTS chat_messages (
             id SERIAL PRIMARY KEY,
@@ -103,6 +109,8 @@ def init_db():
 
         CREATE INDEX IF NOT EXISTS idx_files_session ON files(session_id);
         CREATE INDEX IF NOT EXISTS idx_chat_file ON chat_messages(file_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_files_session_hash ON files(session_id, content_hash);
+        CREATE INDEX IF NOT EXISTS idx_files_session_srckey ON files(session_id, source_key);
         """
     )
     conn.commit()
@@ -112,12 +120,14 @@ def init_db():
 
 # ---------- Files ----------
 
-def create_file(file_id, session_id, filename, sheet_names, source="upload"):
+def create_file(file_id, session_id, filename, sheet_names, source="upload",
+                content_hash=None, source_key=None):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO files (id, session_id, filename, sheet_names, source) VALUES (%s,%s,%s,%s,%s)",
-        (file_id, session_id, filename, json.dumps(sheet_names), source),
+        "INSERT INTO files (id, session_id, filename, sheet_names, source, content_hash, source_key) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (file_id, session_id, filename, json.dumps(sheet_names), source, content_hash, source_key),
     )
     conn.commit()
     cur.close()
@@ -136,12 +146,51 @@ def update_file_sheets(file_id, sheet_names):
     conn.close()
 
 
-def list_files(session_id):
+def find_duplicate(session_id, content_hash=None, source_key=None):
+    """Cari file di sesi ini yang sama dgn yang mau diunggah.
+    Cocok kalau isi file identik (content_hash) atau link sumbernya sama (source_key).
+    Mengembalikan baris file terbaru yang cocok, atau None."""
+    if not content_hash and not source_key:
+        return None
+    conditions, params = [], [session_id]
+    if content_hash:
+        conditions.append("content_hash=%s")
+        params.append(content_hash)
+    if source_key:
+        conditions.append("source_key=%s")
+        params.append(source_key)
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
-        "SELECT id, filename, sheet_names, status, source, uploaded_at FROM files "
-        "WHERE session_id=%s ORDER BY uploaded_at DESC",
+        "SELECT id, filename, sheet_names, source, uploaded_at FROM files "
+        "WHERE session_id=%s AND status<>'deleted' AND (" + " OR ".join(conditions) + ") "
+        "ORDER BY uploaded_at DESC LIMIT 1",
+        params,
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not row:
+        return None
+    return dict(row, uploaded_at=row["uploaded_at"].isoformat())
+
+
+def list_files(session_id):
+    """Daftar file sesi ini, SATU baris per file unik (yang terbaru).
+    Kunci unik: link sumber > hash isi file > nama file (untuk file lama yang belum punya hash)."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, filename, sheet_names, status, source, uploaded_at FROM (
+            SELECT DISTINCT ON (COALESCE(source_key, content_hash, 'name:' || lower(filename)))
+                   id, filename, sheet_names, status, source, uploaded_at
+            FROM files
+            WHERE session_id=%s
+            ORDER BY COALESCE(source_key, content_hash, 'name:' || lower(filename)), uploaded_at DESC
+        ) uniq
+        ORDER BY uploaded_at DESC
+        """,
         (session_id,),
     )
     rows = cur.fetchall()
