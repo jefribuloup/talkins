@@ -21,28 +21,24 @@
     status.classList.toggle("error", !!isError);
   }
 
-  function removeDupConfirm() {
-    document.querySelectorAll(".dup-confirm").forEach((el) => el.remove());
+  async function askConfirm(opts) {
+    if (window.MejaConfirm) return window.MejaConfirm.ask(opts);
+    return window.confirm([opts.title, opts.detail, opts.message].filter(Boolean).join("\n"));
   }
 
-  function showDupConfirm(data) {
-    removeDupConfirm();
-    const box = document.createElement("div");
-    box.className = "dup-confirm";
-    box.innerHTML =
-      `<strong>${escapeHtml(t("workspace.upload.dupTitle"))}</strong>` +
-      `<p>${escapeHtml(format(t("workspace.upload.dupMessage"), { name: data.filename, date: formatDate(data.uploaded_at) }))}</p>` +
-      `<div class="dup-confirm-actions">` +
-      `<button type="button" class="btn btn-primary" data-act="open">${escapeHtml(t("workspace.upload.dupOpen"))}</button>` +
-      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.dupCancel"))}</button>` +
-      `</div>`;
-    box.querySelector('[data-act="open"]').addEventListener("click", () => {
-      removeDupConfirm();
-      if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
-      else window.location.href = `/workspace/${data.file_id}`;
+  // File yang sama sudah pernah diunggah -> tanya user mau membukanya atau tidak
+  async function askOpenExisting(data) {
+    const ok = await askConfirm({
+      variant: "warn",
+      title: t("workspace.upload.dupTitle"),
+      detail: data.filename,
+      message: format(t("workspace.upload.dupMessage"), { date: formatDate(data.uploaded_at) }),
+      confirmLabel: t("workspace.upload.dupOpen"),
+      cancelLabel: t("workspace.upload.dupCancel"),
     });
-    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
-    status.insertAdjacentElement("afterend", box);
+    if (!ok) return;
+    if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
+    else window.location.href = `/workspace/${data.file_id}`;
   }
 
   let uploading = false;
@@ -50,7 +46,6 @@
   async function uploadFile(file) {
     if (!file || uploading) return;
     uploading = true;
-    removeDupConfirm();
     setStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
     const form = new FormData();
@@ -62,7 +57,7 @@
       if (!res.ok) throw new Error(data.error || "Upload gagal");
       if (data.duplicate) {
         setStatus("", false);
-        showDupConfirm(data);
+        askOpenExisting(data);
         return;
       }
       setStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
@@ -106,39 +101,29 @@
     return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
   }
 
-  function confirmDeleteFile(f, row) {
-    removeDupConfirm();
-    const box = document.createElement("div");
-    box.className = "dup-confirm danger";
-    box.innerHTML =
-      `<strong>${escapeHtml(t("workspace.upload.delTitle"))}</strong>` +
-      `<p>${escapeHtml(format(t("workspace.upload.delMessage"), { name: f.filename }))}</p>` +
-      `<div class="dup-confirm-actions">` +
-      `<button type="button" class="btn btn-danger" data-act="del">${escapeHtml(t("workspace.upload.delConfirm"))}</button>` +
-      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.delCancel"))}</button>` +
-      `</div>`;
-    const delBtn = box.querySelector('[data-act="del"]');
-    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
-    delBtn.addEventListener("click", async () => {
-      delBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error("Gagal menghapus file");
-        removeDupConfirm();
-        loadFileList();
-      } catch (err) {
-        removeDupConfirm();
-        setStatus(err.message, true);
-      }
+  async function confirmDeleteFile(f) {
+    const ok = await askConfirm({
+      variant: "danger",
+      title: t("workspace.upload.delTitle"),
+      detail: f.filename,
+      message: t("workspace.upload.delMessage"),
+      confirmLabel: t("workspace.upload.delConfirm"),
+      cancelLabel: t("workspace.upload.delCancel"),
     });
-    row.insertAdjacentElement("afterend", box);
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Gagal menghapus file");
+      loadFileList();
+    } catch (err) {
+      setStatus(err.message, true);
+    }
   }
 
   async function loadFileList() {
     try {
       const res = await fetch("/api/files");
       const files = await res.json();
-      removeDupConfirm();
       if (!files.length) {
         fileListBody.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
         return;
@@ -159,7 +144,7 @@
         `;
         row.querySelector("button").addEventListener("click", (e) => {
           e.preventDefault();
-          confirmDeleteFile(f, row);
+          confirmDeleteFile(f);
         });
         fileListBody.appendChild(row);
       });
