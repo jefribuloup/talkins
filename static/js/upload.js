@@ -106,11 +106,43 @@
     return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
   }
 
+  function confirmDeleteFile(f, row) {
+    removeDupConfirm();
+    const box = document.createElement("div");
+    box.className = "dup-confirm danger";
+    box.innerHTML =
+      `<strong>${escapeHtml(t("workspace.upload.delTitle"))}</strong>` +
+      `<p>${escapeHtml(format(t("workspace.upload.delMessage"), { name: f.filename }))}</p>` +
+      `<div class="dup-confirm-actions">` +
+      `<button type="button" class="btn btn-danger" data-act="del">${escapeHtml(t("workspace.upload.delConfirm"))}</button>` +
+      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.delCancel"))}</button>` +
+      `</div>`;
+    const delBtn = box.querySelector('[data-act="del"]');
+    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
+    delBtn.addEventListener("click", async () => {
+      delBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Gagal menghapus file");
+        removeDupConfirm();
+        loadFileList();
+      } catch (err) {
+        removeDupConfirm();
+        setStatus(err.message, true);
+      }
+    });
+    row.insertAdjacentElement("afterend", box);
+  }
+
   async function loadFileList() {
     try {
       const res = await fetch("/api/files");
       const files = await res.json();
-      if (!files.length) return;
+      removeDupConfirm();
+      if (!files.length) {
+        fileListBody.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
+        return;
+      }
 
       fileListBody.innerHTML = "";
       files.forEach((f) => {
@@ -125,10 +157,9 @@
           <a class="btn" href="/workspace/${f.id}">${t("dashboard.filelist.open")}</a>
           <button class="btn" data-id="${f.id}">${t("dashboard.filelist.delete")}</button>
         `;
-        row.querySelector("button").addEventListener("click", async (e) => {
+        row.querySelector("button").addEventListener("click", (e) => {
           e.preventDefault();
-          await fetch(`/api/files/${f.id}`, { method: "DELETE" });
-          loadFileList();
+          confirmDeleteFile(f, row);
         });
         fileListBody.appendChild(row);
       });
