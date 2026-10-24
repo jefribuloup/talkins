@@ -1632,6 +1632,50 @@
     else window.location.href = `/workspace/${data.file_id}`;
   }
 
+  // Konfirmasi hapus: muncul tepat di bawah baris file, tidak ada yang dihapus sebelum "Ya, hapus".
+  function confirmDeleteFile(f, row) {
+    removeDupConfirm();
+    const isCurrent = f.id === fileId;
+    const box = document.createElement("div");
+    box.className = "dup-confirm danger";
+    box.innerHTML =
+      `<strong>${escapeHtml(t("workspace.upload.delTitle"))}</strong>` +
+      `<p>${escapeHtml(format(t(isCurrent ? "workspace.upload.delMessageCurrent" : "workspace.upload.delMessage"), { name: f.filename }))}</p>` +
+      `<div class="dup-confirm-actions">` +
+      `<button type="button" class="btn btn-danger" data-act="del">${escapeHtml(t("workspace.upload.delConfirm"))}</button>` +
+      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.delCancel"))}</button>` +
+      `</div>`;
+    const delBtn = box.querySelector('[data-act="del"]');
+    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
+    delBtn.addEventListener("click", async () => {
+      delBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error("Gagal menghapus file");
+      } catch (err) {
+        removeDupConfirm();
+        setWsStatus(err.message, true);
+        return;
+      }
+      removeDupConfirm();
+      if (!isCurrent) {
+        loadWsFileHistory(); // file lain yang dihapus: tetap di halaman ini
+        return;
+      }
+      // File yang sedang dibuka dihapus: pindah ke file lain kalau ada, baru ke ruang unggah
+      let target = "/dashboard";
+      try {
+        const rest = await (await fetch("/api/files")).json();
+        if (rest.length) target = `/workspace/${rest[0].id}`;
+      } catch (err) {
+        // fallback ke /dashboard
+      }
+      if (window.MejaRouter) window.MejaRouter.go(target);
+      else window.location.href = target;
+    });
+    row.insertAdjacentElement("afterend", box);
+  }
+
   async function loadWsFileHistory() {
     try {
       const res = await fetch("/api/files");
@@ -1640,6 +1684,7 @@
         wsFileHistory.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
         return;
       }
+      removeDupConfirm();
       wsFileHistory.innerHTML = "";
       files.forEach((f) => {
         const row = document.createElement("div");
@@ -1652,15 +1697,9 @@
           <a class="btn" href="/workspace/${f.id}">${f.id === fileId ? t("workspace.upload.current") : t("dashboard.filelist.open")}</a>
           <button class="btn" data-id="${f.id}">${t("dashboard.filelist.delete")}</button>
         `;
-        row.querySelector("button").addEventListener("click", async (e) => {
+        row.querySelector("button").addEventListener("click", (e) => {
           e.preventDefault();
-          await fetch(`/api/files/${f.id}`, { method: "DELETE" });
-          if (f.id === fileId) {
-            if (window.MejaRouter) window.MejaRouter.go("/dashboard");
-            else window.location.href = "/dashboard";
-            return;
-          }
-          loadWsFileHistory();
+          confirmDeleteFile(f, row);
         });
         wsFileHistory.appendChild(row);
       });
