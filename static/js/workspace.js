@@ -1590,37 +1590,12 @@
     return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
   }
 
-  // ---------- Konfirmasi: file sudah pernah diunggah ----------
+  // ---------- Dialog konfirmasi (melayang di luar popup, lihat confirm.js) ----------
 
-  function removeDupConfirm() {
-    uploadModal.querySelectorAll(".dup-confirm").forEach((el) => el.remove());
-  }
-
-  // Tampilkan kotak konfirmasi setelah elemen `anchor`. Mengembalikan true (dipanggil
-  // saat user memilih "Ya, buka") lewat callback onOpen.
-  function showDupConfirm(anchor, data, onOpen) {
-    removeDupConfirm();
-    const isCurrent = data.file_id === fileId;
-    const box = document.createElement("div");
-    box.className = "dup-confirm";
-    box.innerHTML =
-      `<strong>${escapeHtml(t("workspace.upload.dupTitle"))}</strong>` +
-      `<p>${escapeHtml(
-        format(t(isCurrent ? "workspace.upload.dupMessageCurrent" : "workspace.upload.dupMessage"), {
-          name: data.filename,
-          date: formatDate(data.uploaded_at),
-        })
-      )}</p>` +
-      `<div class="dup-confirm-actions">` +
-      `<button type="button" class="btn btn-primary" data-act="open">${escapeHtml(t("workspace.upload.dupOpen"))}</button>` +
-      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.dupCancel"))}</button>` +
-      `</div>`;
-    box.querySelector('[data-act="open"]').addEventListener("click", () => {
-      removeDupConfirm();
-      onOpen();
-    });
-    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
-    anchor.insertAdjacentElement("afterend", box);
+  // Fallback ke confirm() bawaan browser kalau confirm.js gagal dimuat
+  async function askConfirm(opts) {
+    if (window.MejaConfirm) return window.MejaConfirm.ask(opts);
+    return window.confirm([opts.title, opts.detail, opts.message].filter(Boolean).join("\n"));
   }
 
   function openExistingFile(data) {
@@ -1632,48 +1607,56 @@
     else window.location.href = `/workspace/${data.file_id}`;
   }
 
-  // Konfirmasi hapus: muncul tepat di bawah baris file, tidak ada yang dihapus sebelum "Ya, hapus".
-  function confirmDeleteFile(f, row) {
-    removeDupConfirm();
-    const isCurrent = f.id === fileId;
-    const box = document.createElement("div");
-    box.className = "dup-confirm danger";
-    box.innerHTML =
-      `<strong>${escapeHtml(t("workspace.upload.delTitle"))}</strong>` +
-      `<p>${escapeHtml(format(t(isCurrent ? "workspace.upload.delMessageCurrent" : "workspace.upload.delMessage"), { name: f.filename }))}</p>` +
-      `<div class="dup-confirm-actions">` +
-      `<button type="button" class="btn btn-danger" data-act="del">${escapeHtml(t("workspace.upload.delConfirm"))}</button>` +
-      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.delCancel"))}</button>` +
-      `</div>`;
-    const delBtn = box.querySelector('[data-act="del"]');
-    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
-    delBtn.addEventListener("click", async () => {
-      delBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
-        if (!res.ok) throw new Error("Gagal menghapus file");
-      } catch (err) {
-        removeDupConfirm();
-        setWsStatus(err.message, true);
-        return;
-      }
-      removeDupConfirm();
-      if (!isCurrent) {
-        loadWsFileHistory(); // file lain yang dihapus: tetap di halaman ini
-        return;
-      }
-      // File yang sedang dibuka dihapus: pindah ke file lain kalau ada, baru ke ruang unggah
-      let target = "/dashboard";
-      try {
-        const rest = await (await fetch("/api/files")).json();
-        if (rest.length) target = `/workspace/${rest[0].id}`;
-      } catch (err) {
-        // fallback ke /dashboard
-      }
-      if (window.MejaRouter) window.MejaRouter.go(target);
-      else window.location.href = target;
+  // File yang sama sudah pernah diunggah -> tanya user mau membukanya atau tidak
+  async function askOpenExisting(data) {
+    const isCurrent = data.file_id === fileId;
+    const ok = await askConfirm({
+      variant: "warn",
+      title: t("workspace.upload.dupTitle"),
+      detail: data.filename,
+      message: format(t(isCurrent ? "workspace.upload.dupMessageCurrent" : "workspace.upload.dupMessage"), {
+        date: formatDate(data.uploaded_at),
+      }),
+      confirmLabel: t("workspace.upload.dupOpen"),
+      cancelLabel: t("workspace.upload.dupCancel"),
     });
-    row.insertAdjacentElement("afterend", box);
+    if (ok) openExistingFile(data);
+  }
+
+  // Konfirmasi hapus: tidak ada yang terhapus sebelum user menekan "Ya, hapus".
+  async function confirmDeleteFile(f) {
+    const isCurrent = f.id === fileId;
+    const ok = await askConfirm({
+      variant: "danger",
+      title: t("workspace.upload.delTitle"),
+      detail: f.filename,
+      message: t(isCurrent ? "workspace.upload.delMessageCurrent" : "workspace.upload.delMessage"),
+      confirmLabel: t("workspace.upload.delConfirm"),
+      cancelLabel: t("workspace.upload.delCancel"),
+    });
+    if (!ok) return;
+
+    try {
+      const res = await fetch(`/api/files/${f.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Gagal menghapus file");
+    } catch (err) {
+      setWsStatus(err.message, true);
+      return;
+    }
+    if (!isCurrent) {
+      loadWsFileHistory(); // file lain yang dihapus: tetap di halaman ini
+      return;
+    }
+    // File yang sedang dibuka dihapus: pindah ke file lain kalau ada, baru ke ruang unggah
+    let target = "/dashboard";
+    try {
+      const rest = await (await fetch("/api/files")).json();
+      if (rest.length) target = `/workspace/${rest[0].id}`;
+    } catch (err) {
+      // fallback ke /dashboard
+    }
+    if (window.MejaRouter) window.MejaRouter.go(target);
+    else window.location.href = target;
   }
 
   async function loadWsFileHistory() {
@@ -1684,7 +1667,6 @@
         wsFileHistory.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
         return;
       }
-      removeDupConfirm();
       wsFileHistory.innerHTML = "";
       files.forEach((f) => {
         const row = document.createElement("div");
@@ -1699,7 +1681,7 @@
         `;
         row.querySelector("button").addEventListener("click", (e) => {
           e.preventDefault();
-          confirmDeleteFile(f, row);
+          confirmDeleteFile(f);
         });
         wsFileHistory.appendChild(row);
       });
@@ -1711,7 +1693,6 @@
   document.getElementById("btnUpload").addEventListener("click", () => {
     setWsStatus("", false);
     setWsUrlStatus("", false);
-    removeDupConfirm();
     uploadModal.classList.add("open");
     loadWsFileHistory();
   });
@@ -1735,7 +1716,6 @@
   async function uploadFromUrl() {
     const url = wsUrlInput.value.trim();
     if (!url || wsUrlSubmit.disabled) return;
-    removeDupConfirm();
     setWsUrlStatus(t("workspace.upload.linkProcessing"), false);
     wsUrlSubmit.disabled = true;
     try {
@@ -1748,7 +1728,7 @@
       if (!res.ok) throw new Error(data.error || "Gagal memproses link");
       if (data.duplicate) {
         setWsUrlStatus("", false);
-        showDupConfirm(wsUrlStatus, data, () => openExistingFile(data));
+        askOpenExisting(data);
         return;
       }
       setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
@@ -1771,7 +1751,6 @@
   async function uploadNewFile(file) {
     if (!file || wsUploading) return;
     wsUploading = true;
-    removeDupConfirm();
     setWsStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
     const form = new FormData();
@@ -1783,7 +1762,7 @@
       if (!res.ok) throw new Error(data.error || "Upload gagal");
       if (data.duplicate) {
         setWsStatus("", false);
-        showDupConfirm(wsDropzoneStatus, data, () => openExistingFile(data));
+        askOpenExisting(data);
         return;
       }
       setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
