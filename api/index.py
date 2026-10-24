@@ -66,7 +66,8 @@ def upload():
         meta = excel_engine.ingest_file(f, session_id)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(meta), 201
+    # 200 + duplicate=true -> file sudah pernah diunggah, frontend minta konfirmasi user
+    return jsonify(meta), (200 if meta.get("duplicate") else 201)
 
 
 @app.route("/api/upload-url", methods=["POST"])
@@ -77,7 +78,7 @@ def upload_url():
         meta = excel_engine.ingest_from_url(url, session_id)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
-    return jsonify(meta), 201
+    return jsonify(meta), (200 if meta.get("duplicate") else 201)
 
 
 @app.route("/api/files", methods=["GET"])
