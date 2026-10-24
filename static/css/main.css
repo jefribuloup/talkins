@@ -230,6 +230,20 @@ a { color: inherit; }
 }
 .dropzone-status.error { color: var(--danger); }
 
+/* Konfirmasi "file sudah diunggah" */
+.dup-confirm {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(242, 183, 5, 0.08);
+  font-size: 13px;
+  text-align: left;
+}
+.dup-confirm strong { display: block; margin-bottom: 4px; }
+.dup-confirm p { margin: 0 0 10px; color: var(--text-muted); word-break: break-word; }
+.dup-confirm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
 /* ---------- Dashboard ---------- */
 
 .dashboard {
