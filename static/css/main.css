@@ -240,6 +240,9 @@ a { color: inherit; }
   font-size: 13px;
   text-align: left;
 }
+.dup-confirm.danger { border-color: var(--danger); background: rgba(220, 60, 60, 0.08); }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger); color: #fff; }
 .dup-confirm strong { display: block; margin-bottom: 4px; }
 .dup-confirm p { margin: 0 0 10px; color: var(--text-muted); word-break: break-word; }
 .dup-confirm-actions { display: flex; gap: 8px; flex-wrap: wrap; }
