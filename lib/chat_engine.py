@@ -5,6 +5,8 @@ Primary: Gemini Flash (gratis). Fallback otomatis: Groq (Llama 3.3 70B, gratis) 
 Gemini kena rate limit / error.
 """
 import os
+import time
+import re
 import json
 import requests
 import pandas as pd
@@ -14,6 +16,8 @@ from lib.excel_engine import records_to_df, _get_columns
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
+# Model cadangan kalau model utama sedang overload (503). Bisa diganti lewat env.
+GEMINI_FALLBACK_MODEL = os.environ.get("GEMINI_FALLBACK_MODEL", "gemini-flash-lite-latest")
 GEMINI_URL = (
     f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
 )
@@ -225,6 +229,24 @@ def _trim_history(history):
 
 # ---------- Panggilan LLM ----------
 
+def _clean_error(e):
+    """Pesan error aman ditampilkan: buang query string (?key=...) dan pola API key."""
+    msg = re.sub(r"\?[^\s'\"]*", "", str(e))
+    msg = re.sub(r"(AIza|AQ\.|gsk_|sk-)[A-Za-z0-9_\-\.]{10,}", "[disembunyikan]", msg)
+    return msg
+
+
+def _gemini_request(model, body):
+    # API key lewat header (bukan ?key=) supaya tidak ikut muncul di pesan error/log.
+    base = GEMINI_URL.rsplit("/models/", 1)[0]
+    return requests.post(
+        f"{base}/models/{model}:generateContent",
+        headers={"x-goog-api-key": GEMINI_API_KEY},
+        json=body,
+        timeout=30,
+    )
+
+
 def _call_gemini(system_prompt, history, user_message):
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY belum diset")
@@ -238,11 +260,17 @@ def _call_gemini(system_prompt, history, user_message):
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
     }
-    resp = requests.post(
-        f"{GEMINI_URL}?key={GEMINI_API_KEY}",
-        json=body,
-        timeout=30,
-    )
+    # 503/429 = server Gemini sedang sibuk (sementara) -> coba ulang sebentar, lalu model cadangan.
+    attempts = [GEMINI_MODEL, GEMINI_MODEL]
+    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        attempts.append(GEMINI_FALLBACK_MODEL)
+    resp = None
+    for i, model in enumerate(attempts):
+        resp = _gemini_request(model, body)
+        if resp.status_code not in (429, 500, 502, 503, 504):
+            break
+        if i < len(attempts) - 1:
+            time.sleep(1.5)
     resp.raise_for_status()
     data = resp.json()
     return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -274,7 +302,7 @@ def _call_llm(system_prompt, history, user_message):
             text = provider(system_prompt, history, user_message)
             return text, provider.__name__.replace("_call_", "")
         except Exception as e:
-            errors.append(f"{provider.__name__}: {e}")
+            errors.append(f"{provider.__name__}: {_clean_error(e)}")
     raise RuntimeError("Semua provider LLM gagal -> " + " | ".join(errors))
 
 
@@ -311,8 +339,16 @@ def ask(session_id, file_id, message, lang="id"):
     return {"answer": answer, "provider": provider_used, "sheets_used": relevant_sheets}
 
 
+MAX_SLIDE_PROFILE_SHEETS = 6
+
+
 def generate_slide_outline(file_id, spec):
-    profile = _build_data_profile(file_id)
+    # Outline slide mencakup seluruh file (bukan satu pertanyaan), jadi profilkan beberapa sheet
+    # pertama; sheet sisanya tetap disebut namanya di profil (lihat _build_data_profile).
+    sheet_names = db.list_sheet_names(file_id)
+    if not sheet_names:
+        raise ValueError("File ini belum punya sheet yang bisa dibuat slide.")
+    profile = _build_data_profile(file_id, sheet_names[:MAX_SLIDE_PROFILE_SHEETS], sheet_names)
     topic = spec.get("topic", "Ringkasan data")
     prompt = (
         f"Buatkan outline slide presentasi tentang: {topic}.\n"
@@ -329,8 +365,15 @@ def generate_slide_outline(file_id, spec):
     cleaned = text.strip().strip("`")
     if cleaned.lower().startswith("json"):
         cleaned = cleaned[4:].strip()
-    try:
-        slides = json.loads(cleaned)
-    except json.JSONDecodeError:
+    slides = None
+    for candidate in (cleaned, cleaned[cleaned.find("["): cleaned.rfind("]") + 1]):
+        try:
+            slides = json.loads(candidate)
+            break
+        except (json.JSONDecodeError, ValueError):
+            continue
+    if isinstance(slides, dict):  # LLM kadang membungkus: {"slides": [...]}
+        slides = slides.get("slides")
+    if not isinstance(slides, list) or not slides:
         slides = [{"title": "Ringkasan", "bullets": [text[:300]]}]
     return {"slides": slides}
