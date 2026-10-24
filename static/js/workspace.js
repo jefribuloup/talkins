@@ -1590,6 +1590,48 @@
     return d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
   }
 
+  // ---------- Konfirmasi: file sudah pernah diunggah ----------
+
+  function removeDupConfirm() {
+    uploadModal.querySelectorAll(".dup-confirm").forEach((el) => el.remove());
+  }
+
+  // Tampilkan kotak konfirmasi setelah elemen `anchor`. Mengembalikan true (dipanggil
+  // saat user memilih "Ya, buka") lewat callback onOpen.
+  function showDupConfirm(anchor, data, onOpen) {
+    removeDupConfirm();
+    const isCurrent = data.file_id === fileId;
+    const box = document.createElement("div");
+    box.className = "dup-confirm";
+    box.innerHTML =
+      `<strong>${escapeHtml(t("workspace.upload.dupTitle"))}</strong>` +
+      `<p>${escapeHtml(
+        format(t(isCurrent ? "workspace.upload.dupMessageCurrent" : "workspace.upload.dupMessage"), {
+          name: data.filename,
+          date: formatDate(data.uploaded_at),
+        })
+      )}</p>` +
+      `<div class="dup-confirm-actions">` +
+      `<button type="button" class="btn btn-primary" data-act="open">${escapeHtml(t("workspace.upload.dupOpen"))}</button>` +
+      `<button type="button" class="btn" data-act="cancel">${escapeHtml(t("workspace.upload.dupCancel"))}</button>` +
+      `</div>`;
+    box.querySelector('[data-act="open"]').addEventListener("click", () => {
+      removeDupConfirm();
+      onOpen();
+    });
+    box.querySelector('[data-act="cancel"]').addEventListener("click", removeDupConfirm);
+    anchor.insertAdjacentElement("afterend", box);
+  }
+
+  function openExistingFile(data) {
+    if (data.file_id === fileId) {
+      uploadModal.classList.remove("open");
+      return;
+    }
+    if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
+    else window.location.href = `/workspace/${data.file_id}`;
+  }
+
   async function loadWsFileHistory() {
     try {
       const res = await fetch("/api/files");
@@ -1604,7 +1646,7 @@
         row.className = "file-row" + (f.id === fileId ? " active" : "");
         row.innerHTML = `
           <div>
-            <div class="file-name">${f.filename}</div>
+            <div class="file-name">${escapeHtml(f.filename)}</div>
             <div class="file-meta">${format(t("dashboard.filelist.meta"), { count: f.sheet_names.length, date: formatDate(f.uploaded_at) })}</div>
           </div>
           <a class="btn" href="/workspace/${f.id}">${f.id === fileId ? t("workspace.upload.current") : t("dashboard.filelist.open")}</a>
@@ -1629,6 +1671,8 @@
 
   document.getElementById("btnUpload").addEventListener("click", () => {
     setWsStatus("", false);
+    setWsUrlStatus("", false);
+    removeDupConfirm();
     uploadModal.classList.add("open");
     loadWsFileHistory();
   });
@@ -1651,7 +1695,8 @@
 
   async function uploadFromUrl() {
     const url = wsUrlInput.value.trim();
-    if (!url) return;
+    if (!url || wsUrlSubmit.disabled) return;
+    removeDupConfirm();
     setWsUrlStatus(t("workspace.upload.linkProcessing"), false);
     wsUrlSubmit.disabled = true;
     try {
@@ -1662,6 +1707,11 @@
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal memproses link");
+      if (data.duplicate) {
+        setWsUrlStatus("", false);
+        showDupConfirm(wsUrlStatus, data, () => openExistingFile(data));
+        return;
+      }
       setWsUrlStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
       if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
       else window.location.href = `/workspace/${data.file_id}`;
@@ -1677,8 +1727,12 @@
     if (e.key === "Enter") uploadFromUrl();
   });
 
+  let wsUploading = false;
+
   async function uploadNewFile(file) {
-    if (!file) return;
+    if (!file || wsUploading) return;
+    wsUploading = true;
+    removeDupConfirm();
     setWsStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
     const form = new FormData();
@@ -1688,16 +1742,28 @@
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload gagal");
+      if (data.duplicate) {
+        setWsStatus("", false);
+        showDupConfirm(wsDropzoneStatus, data, () => openExistingFile(data));
+        return;
+      }
       setWsStatus(format(t("dashboard.status.success"), { count: data.sheets.length }), false);
       if (window.MejaRouter) window.MejaRouter.go(`/workspace/${data.file_id}`);
       else window.location.href = `/workspace/${data.file_id}`;
     } catch (err) {
       setWsStatus(err.message, true);
+    } finally {
+      wsUploading = false;
     }
   }
 
   wsDropzone.addEventListener("click", () => wsFileInput.click());
-  wsFileInput.addEventListener("change", (e) => uploadNewFile(e.target.files[0]));
+  wsFileInput.addEventListener("change", (e) => {
+    const file = e.target.files[0];
+    // reset supaya memilih file yang sama lagi tetap memicu event "change"
+    e.target.value = "";
+    uploadNewFile(file);
+  });
 
   ["dragenter", "dragover"].forEach((evt) =>
     wsDropzone.addEventListener(evt, (e) => {
