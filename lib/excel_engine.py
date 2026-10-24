@@ -5,6 +5,7 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
 """
 import io
 import re
+import hashlib
 import json
 import bisect
 import uuid
@@ -244,6 +245,12 @@ def ingest_from_url(url, session_id):
         raise ValueError("Link tidak valid")
 
     fetch_url, filename = _resolve_spreadsheet_url(url.strip())
+
+    # Link yang sama sudah pernah diproses di sesi ini -> jangan unduh & buat salinan lagi
+    dup = db.find_duplicate(session_id, source_key=fetch_url)
+    if dup:
+        return _duplicate_response(dup)
+
     try:
         resp = requests.get(fetch_url, timeout=20, allow_redirects=True)
         resp.raise_for_status()
@@ -253,12 +260,31 @@ def ingest_from_url(url, session_id):
             "(Google Sheets: Share -> Anyone with the link -> Viewer)."
         )
 
-    return _ingest_bytes(resp.content, filename, session_id, source="url")
+    return _ingest_bytes(resp.content, filename, session_id, source="url", source_key=fetch_url)
 
 
 # ---------- Logic inti ingest, dipakai baik oleh upload file maupun link ----------
 
-def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
+def _duplicate_response(dup):
+    """Bentuk respons standar kalau file/link yang sama sudah pernah diunggah.
+    Frontend yang menanyakan ke user apakah mau membuka file yang sudah ada."""
+    return {
+        "duplicate": True,
+        "file_id": dup["id"],
+        "filename": dup["filename"],
+        "sheets": dup.get("sheet_names") or [],
+        "uploaded_at": dup["uploaded_at"],
+        "source": dup.get("source", "upload"),
+    }
+
+
+def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=None):
+    # Cegah dobel: isi file identik (SHA-256) dgn yang sudah ada di sesi ini
+    content_hash = hashlib.sha256(raw_bytes).hexdigest()
+    dup = db.find_duplicate(session_id, content_hash=content_hash, source_key=source_key)
+    if dup:
+        return _duplicate_response(dup)
+
     engine = _pick_engine(filename)
     try:
         xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
@@ -268,7 +294,8 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload"):
             "(.xlsx/.xls/.xlsm) dan, untuk link, aksesnya publik."
         )
     file_id = str(uuid.uuid4())
-    db.create_file(file_id, session_id, filename, [], source=source)
+    db.create_file(file_id, session_id, filename, [], source=source,
+                   content_hash=content_hash, source_key=source_key)
 
     sheet_names = []
     for sheet_name in xls.sheet_names:
