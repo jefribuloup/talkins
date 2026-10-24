@@ -210,8 +210,21 @@ def get_file(file_id):
 
 
 def delete_file(session_id, file_id):
+    """Hapus file beserta salinan duplikatnya (kunci sama: link sumber / hash isi / nama file
+    lama) di sesi ini. Tanpa ini, duplikat lama yang tersembunyi akan muncul lagi di daftar
+    setelah file yang tampil dihapus, seolah-olah tombol Hapus tidak bekerja."""
     conn = get_conn()
     cur = conn.cursor()
+    cur.execute(
+        """
+        DELETE FROM files
+        WHERE session_id=%s AND COALESCE(source_key, content_hash, 'name:' || lower(filename)) = (
+            SELECT COALESCE(source_key, content_hash, 'name:' || lower(filename))
+            FROM files WHERE id=%s AND session_id=%s
+        )
+        """,
+        (session_id, file_id, session_id),
+    )
     cur.execute("DELETE FROM files WHERE id=%s AND session_id=%s", (file_id, session_id))
     conn.commit()
     cur.close()
