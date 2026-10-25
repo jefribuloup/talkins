@@ -5,10 +5,11 @@ Struktur modular: logic berat ada di /lib, file ini cuma routing+orkestrasi
 -> supaya gampang porting ke Next.js API routes nanti (tiap route = 1 handler mandiri).
 """
 import os
+import re
 import sys
 import uuid
 
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, Response
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -16,6 +17,7 @@ from lib import db
 from lib import excel_engine
 from lib import chat_engine
 from lib import formula_engine
+from lib import slide_engine
 
 app = Flask(
     __name__,
@@ -171,12 +173,40 @@ def chat_history(file_id):
 
 @app.route("/api/files/<file_id>/export/slides", methods=["POST"])
 def export_slides(file_id):
-    spec = request.json  # {"topic": "...", "chart_cols": [...]}
+    """Susun deck slide dari data (cepat, tanpa AI). Body: {topic, sheet, lang, theme}."""
     try:
-        result = chat_engine.generate_slide_outline(file_id, spec)
+        deck = slide_engine.build_deck(file_id, request.json or {})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify(result)
+    return jsonify({"deck": deck})
+
+
+@app.route("/api/files/<file_id>/export/slides/polish", methods=["POST"])
+def polish_slides(file_id):
+    """AI menulis ulang judul & poin slide (opsional, panggilan terpisah supaya deck tampil dulu)."""
+    try:
+        return jsonify(slide_engine.polish_deck((request.json or {}).get("deck") or {}))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/api/files/<file_id>/export/slides.pptx", methods=["POST"])
+def download_pptx(file_id):
+    """Ekspor deck (termasuk hasil edit user) ke file .pptx asli dengan grafik native."""
+    body = request.json or {}
+    deck = body.get("deck") or {}
+    if not deck.get("slides"):
+        return jsonify({"error": "Deck kosong"}), 400
+    try:
+        data = slide_engine.render_pptx(deck, body.get("theme"))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    fname = re.sub(r"[^A-Za-z0-9_.-]+", "_", (deck.get("title") or "slide"))[:60] or "slide"
+    return Response(
+        data,
+        mimetype="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f'attachment; filename="{fname}.pptx"'},
+    )
 
 
 @app.route("/health")
