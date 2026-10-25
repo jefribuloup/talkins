@@ -1152,9 +1152,10 @@
   }
 
   // Pie / donut + legenda
-  function pieChart(id, items) {
+  function pieChart(id, items, opts = {}) {
     const total = items.reduce((n, x) => n + x.value, 0) || 1;
-    const cx = 80, cy = 80, R = 72, r = 40;
+    const big = !!opts.big; // varian besar untuk slide
+    const cx = big ? 120 : 80, cy = big ? 120 : 80, R = big ? 108 : 72, r = big ? 60 : 40;
     let a0 = -Math.PI / 2, paths = "", legend = "";
     items.forEach((x, i) => {
       const frac = x.value / total, a1 = a0 + frac * 2 * Math.PI, large = frac > 0.5 ? 1 : 0;
@@ -1165,12 +1166,15 @@
         : `M ${pt(R, a0)} A ${R} ${R} 0 ${large} 1 ${pt(R, a1)} L ${pt(r, a1)} A ${r} ${r} 0 ${large} 0 ${pt(r, a0)} Z`;
       const hit = x.hit ? ` class="rc-hit" data-chart="${id}" data-i="${i}"` : "";
       paths += `<path${hit} d="${d}" fill="${col}" fill-rule="evenodd"><title>${escapeHtml(x.label)}: ${recapNum(x.value)}</title></path>`;
-      legend += `<g transform="translate(168 ${14 + i * 17})"><rect width="10" height="10" y="-9" fill="${col}"/>` +
-        `<text x="15" y="0" class="rc-axis rc-legend-t">${escapeHtml(clip(x.label, 16))} · ${Math.round(frac * 100)}%</text></g>`;
+      legend += big
+        ? `<g transform="translate(256 ${34 + i * 28})"><rect width="14" height="14" y="-12" rx="3" fill="${col}"/>` +
+          `<text x="22" y="0" class="rc-axis rc-legend-t" style="font-size:15px">${escapeHtml(clip(x.label, 14))} · ${Math.round(frac * 100)}%</text></g>`
+        : `<g transform="translate(168 ${14 + i * 17})"><rect width="10" height="10" y="-9" fill="${col}"/>` +
+          `<text x="15" y="0" class="rc-axis rc-legend-t">${escapeHtml(clip(x.label, 16))} · ${Math.round(frac * 100)}%</text></g>`;
       a0 = a1;
     });
-    const H = Math.max(160, 24 + items.length * 17);
-    return `<svg class="rc-svg" viewBox="0 0 360 ${H}" role="img">${paths}${legend}</svg>`;
+    const H = big ? Math.max(240, 48 + items.length * 28) : Math.max(160, 24 + items.length * 17);
+    return `<svg class="rc-svg" viewBox="0 0 ${big ? 440 : 360} ${H}" role="img">${paths}${legend}</svg>`;
   }
 
   // Grafik garis (tren). points: [{label, values:[...]}], names: nama tiap seri
@@ -1232,12 +1236,14 @@
       `<button type="button" data-ci="${ci}" data-type="${ty}">${t("workspace.recap.type." + ty)}</button>`).join("") + `</div>`;
   }
 
-  // Tabel ringkasan ala PivotTable: data bars (Hitung & Jumlah) + skala warna (Rata-rata)
+  // Tabel ringkasan ala PivotTable: data bars (Hitung & Jumlah) + skala warna (Rata-rata).
+  // Kolom nilai/skor/persentase hanya menampilkan Rata-rata (menjumlahkan IPK tidak bermakna).
   function pivotHtml(pv, pi) {
     const bar = (v, max, col) => {
       const w = max > 0 ? Math.max(0, Math.min(100, (100 * v) / max)) : 0;
       return `background:linear-gradient(90deg,${col} ${w}%,transparent ${w}%)`;
     };
+    const avgOnly = (m) => m.role === "score" || m.role === "percent";
     const rows = pv.rows;
     const maxCount = Math.max(...rows.map((r) => r.count), 1);
     const maxSum = pv.measures.map((_, j) => Math.max(...rows.map((r) => r.m[j].sum), 1));
@@ -1245,21 +1251,26 @@
     const minAvg = avgs.map((a) => (a.length ? Math.min(...a) : 0));
     const maxAvg = avgs.map((a) => (a.length ? Math.max(...a) : 0));
     let h = `<tr><th>${escapeHtml(pv.col)}</th><th>${t("workspace.recap.pivot.count")}</th>` +
-      pv.measures.map((m) => `<th>${t("workspace.recap.pivot.sum")} ${escapeHtml(m)}</th><th>${t("workspace.recap.pivot.avg")} ${escapeHtml(m)}</th>`).join("") + `</tr>`;
+      pv.measures.map((m) =>
+        (avgOnly(m) ? "" : `<th>${t("workspace.recap.pivot.sum")} ${escapeHtml(m.col)}</th>`) +
+        `<th>${t("workspace.recap.pivot.avg")} ${escapeHtml(m.col)}</th>`).join("") + `</tr>`;
+    const avgCell = (a, j) => {
+      const span = maxAvg[j] - minAvg[j];
+      const alpha = a === null ? 0 : 0.08 + (span > 0 ? (0.42 * (a - minAvg[j])) / span : 0.2);
+      return `<td style="background:rgba(237,125,49,${alpha.toFixed(2)})">${a === null ? "–" : recapNum(a)}</td>`;
+    };
     rows.forEach((r) => {
       const hit = r.src ? ` class="rc-hit" data-pivot="${r.src.join(",")}"` : "";
       h += `<tr${hit}><td class="rc-pk">${escapeHtml(r.label === null ? t("workspace.recap.pivot.others") : r.label)}</td>` +
         `<td style="${bar(r.count, maxCount, "rgba(68,114,196,.35)")}">${recapNum(r.count)}</td>` +
-        r.m.map((m, j) => {
-          const a = m.avg, span = maxAvg[j] - minAvg[j];
-          const alpha = a === null ? 0 : 0.08 + (span > 0 ? (0.42 * (a - minAvg[j])) / span : 0.2);
-          return `<td style="${bar(m.sum, maxSum[j], "rgba(112,173,71,.35)")}">${recapNum(m.sum)}</td>` +
-            `<td style="background:rgba(237,125,49,${alpha.toFixed(2)})">${a === null ? "–" : recapNum(a)}</td>`;
-        }).join("") + `</tr>`;
+        r.m.map((m, j) =>
+          (avgOnly(pv.measures[j]) ? "" : `<td style="${bar(m.sum, maxSum[j], "rgba(112,173,71,.35)")}">${recapNum(m.sum)}</td>`) +
+          avgCell(m.avg, j)).join("") + `</tr>`;
     });
     const tot = pv.total;
     h += `<tr class="rc-total"><td>${t("workspace.recap.pivot.total")}</td><td>${recapNum(tot.count)}</td>` +
-      tot.m.map((m) => `<td>${recapNum(m.sum)}</td><td>${m.avg === null ? "–" : recapNum(m.avg)}</td>`).join("") + `</tr>`;
+      tot.m.map((m, j) => (avgOnly(pv.measures[j]) ? "" : `<td>${recapNum(m.sum)}</td>`) +
+        `<td>${m.avg === null ? "–" : recapNum(m.avg)}</td>`).join("") + `</tr>`;
     return `<div class="fp-cell rc-tablewrap"><table class="rc-table rc-pivot" data-pi="${pi}">${h}</table></div>`;
   }
 
@@ -1276,6 +1287,23 @@
       `<div class="rc-summary-text"><strong>${t("workspace.recap.score")}: ${escapeHtml(s.grade)}</strong>` +
       `<span>${recapNum(s.rows)} × ${recapNum(s.cols)}</span>` +
       `<span>${recapNum(s.filled)} ${t("workspace.recap.filled")} · ${recapNum(s.empty)} ${t("workspace.recap.empty")} (${s.fill_pct}%)</span></div></div>`;
+
+    // Jenis data terdeteksi + peran tiap kolom + kartu ringkas (KPI)
+    const ds = d.dataset;
+    if (ds) {
+      h += `<div class="rc-title">${t("workspace.recap.dataset")}</div><div class="fp-cell rc-dataset">` +
+        `<div class="rc-dataset-head"><strong>${escapeHtml(ds.label)}</strong>` +
+        `<span class="rc-conf rc-conf-${ds.confidence}">${t("workspace.recap.conf." + ds.confidence)}</span></div>` +
+        ds.why.map((w) => `<div class="fp-note">${escapeHtml(w)}</div>`).join("") +
+        `<div class="rc-roles">` + ds.roles.map((r) =>
+          `<span class="rc-role rc-role-${r.role}" title="${escapeHtml(r.role_label)}"><b>${escapeHtml(r.col)}</b>` +
+          `${r.label ? " " + escapeHtml(r.label) : ""} · ${escapeHtml(r.role_label)}</span>`).join("") + `</div></div>`;
+      if (ds.kpis && ds.kpis.length) {
+        h += `<div class="rc-kpis">` + ds.kpis.map((k) =>
+          `<div class="rc-kpi"><div class="rc-kpi-v">${typeof k.value === "number" ? recapNum(k.value) : escapeHtml(k.value)}</div>` +
+          `<div class="rc-kpi-l">${escapeHtml(k.label)}</div>${k.sub ? `<div class="rc-kpi-s">${escapeHtml(k.sub)}</div>` : ""}</div>`).join("") + `</div>`;
+      }
+    }
 
     h += `<div class="rc-title">${t("workspace.recap.conclusion")}</div><div class="fp-cell rc-conclusion">` +
       d.conclusion.map((x) => `<p>${escapeHtml(x)}</p>`).join("") + `</div>`;
@@ -1532,32 +1560,293 @@
     renderFormulaPanel();
   }, { signal: pageSignal });
 
-  // ---------- Modal slide ----------
-
+  // ---------- Slide: penampil deck gaya Gamma/PowerPoint ----------
+  // Deck disusun server dari data asli (grafik & angka akurat), lalu AI memoles judul/poin secara
+  // terpisah. Semua teks bisa diklik & diedit; "Unduh PPTX" memakai hasil editan itu.
   const slideModal = document.getElementById("slideModal");
   const slideResult = document.getElementById("slideResult");
+  const deckViewer = document.getElementById("deckViewer");
+  const deckStage = document.getElementById("deckStage");
+  const deckFrame = document.getElementById("deckFrame");
+  const deckThumbs = document.getElementById("deckThumbs");
+  const deckThemes = document.getElementById("deckThemes");
+  const deckAi = document.getElementById("deckAi");
+  const SW = 1280, SH = 720;
+  const deckState = { deck: null, idx: 0, theme: "aurora", edited: new Set(), gen: 0 };
 
-  document.getElementById("btnSlides").addEventListener("click", () => slideModal.classList.add("open"));
+  document.getElementById("btnSlides").addEventListener("click", () => { slideResult.textContent = ""; slideModal.classList.add("open"); });
   document.getElementById("slideClose").addEventListener("click", () => slideModal.classList.remove("open"));
 
-  document.getElementById("slideGenerate").addEventListener("click", async () => {
-    const topic = document.getElementById("slideTopic").value.trim();
-    slideResult.innerHTML = "Membuat outline...";
+  const getPath = (o, path) => path.split(".").reduce((a, k) => (a == null ? a : a[k]), o);
+  function setPath(o, path, v) {
+    const ks = path.split(".");
+    const last = ks.pop();
+    const target = ks.reduce((a, k) => a[k], o);
+    target[last] = v;
+  }
+
+  const editable = (path, tag, cls, text) =>
+    `<${tag} class="${cls}" contenteditable="true" spellcheck="false" data-path="${path}">${escapeHtml(text)}</${tag}>`;
+
+  function withPalette(hexes, fn) {
+    const saved = PALETTE.slice();
+    PALETTE.splice(0, PALETTE.length, ...hexes.map((h) => "#" + h));
+    try { return fn(); } finally { PALETTE.splice(0, PALETTE.length, ...saved); }
+  }
+
+  function slideChart(sl, th) {
+    return withPalette(th.palette, () => {
+      const items = sl.labels.map((lb, i) => ({
+        label: lb, value: sl.series[0].values[i],
+        color: sl.mono ? "#" + th.accent : undefined,
+      }));
+      if (sl.mono && items.length) items[items.length - 1].labelEnd = sl.label_end || "";
+      if (sl.kind === "pie") return pieChart("deck", items, { big: true });
+      if (sl.kind === "line") {
+        return lineChart(sl.labels.map((lb, i) => ({ label: lb, values: sl.series.map((s) => s.values[i]) })),
+          sl.series.map((s) => s.name));
+      }
+      return columnChart("deck", items.map((x, i) => ({ ...x, color: x.color || PALETTE[i % PALETTE.length] })),
+        { edges: !!sl.mono, gap: sl.mono ? 0.08 : 0.3 });
+    });
+  }
+
+  function slideHtml(sl, i, th) {
+    const p = `slides.${i}`;
+    const bullets = (sl.bullets || []).map((b, j) => `<li>${editable(`${p}.bullets.${j}`, "span", "sl-b", b)}</li>`).join("");
+    const head = (title) => `<div class="sl-head"><i></i>${editable(`${p}.title`, "h2", "sl-h2", title)}</div>`;
+    switch (sl.type) {
+      case "title":
+        return `<div class="sl sl-title"><div class="sl-orb o1"></div><div class="sl-orb o2"></div><div class="sl-tbody">` +
+          `${editable("title", "h1", "sl-h1", deckState.deck.title)}<div class="sl-bar"></div>` +
+          `${editable("subtitle", "p", "sl-sub", deckState.deck.subtitle)}` +
+          `<div class="sl-chips">${(sl.chips || []).map((c) => `<span>${escapeHtml(c)}</span>`).join("")}</div></div></div>`;
+      case "kpis":
+        return `<div class="sl">${head(sl.title)}<div class="sl-kpis k${Math.min(sl.items.length, 6)}">` +
+          sl.items.map((k, j) => `<div class="sl-kpi" style="--c:#${th.palette[j % th.palette.length]}">` +
+            `<div class="sl-kv" style="font-size:${String(k.value).length > 16 ? 30 : String(k.value).length > 11 ? 38 : 52}px">${escapeHtml(k.value)}</div>` +
+            `<div class="sl-kl">${escapeHtml(k.label)}</div>${k.sub ? `<div class="sl-ks">${escapeHtml(k.sub)}</div>` : ""}</div>`).join("") +
+          `</div></div>`;
+      case "chart":
+        return `<div class="sl">${head(sl.title)}<div class="sl-split"><div class="sl-card sl-chart">${slideChart(sl, th)}</div>` +
+          `<div class="sl-card sl-side"><ul>${bullets}</ul></div></div></div>`;
+      case "table": {
+        const maxes = sl.columns.map((_, c) => Math.max(...sl.raw.map((r) => (typeof r[c] === "number" ? r[c] : 0)), 0));
+        const rows = sl.rows.map((r, ri) => `<tr>` + r.map((v, c) => {
+          const raw = sl.raw[ri][c];
+          const w = (sl.bars || []).includes(c) && typeof raw === "number" && maxes[c] > 0 ? Math.max(0, Math.min(100, (100 * raw) / maxes[c])) : 0;
+          return `<td${c > 0 ? ` class="n" style="--w:${w}%"` : ""}>${escapeHtml(v)}</td>`;
+        }).join("") + `</tr>`).join("");
+        return `<div class="sl">${head(sl.title)}<div class="sl-card sl-tablecard"><table class="sl-table"><tr>` +
+          sl.columns.map((c, ci) => `<th${ci > 0 ? ' class="n"' : ""}>${escapeHtml(c)}</th>`).join("") + `</tr>${rows}<tr class="tot">` +
+          sl.total.map((v, ci) => `<td${ci > 0 ? ' class="n"' : ""}>${escapeHtml(v)}</td>`).join("") + `</tr></table></div>` +
+          `<ul class="sl-cap">${bullets}</ul></div>`;
+      }
+      case "findings": {
+        const C = 2 * Math.PI * 70, tone = sl.score >= 85 ? "#22C55E" : sl.score >= 65 ? "#F59E0B" : "#EF4444";
+        return `<div class="sl">${head(sl.title)}<div class="sl-split find"><div class="sl-card sl-score">` +
+          `<svg viewBox="0 0 180 180"><circle cx="90" cy="90" r="70" class="bg"/><circle cx="90" cy="90" r="70" stroke="${tone}" ` +
+          `stroke-dasharray="${(sl.score / 100) * C} ${C}" transform="rotate(-90 90 90)" class="fg"/>` +
+          `<text x="90" y="104" text-anchor="middle" fill="${tone}">${sl.score}</text></svg><b style="color:${tone}">${escapeHtml(sl.grade)}</b></div>` +
+          `<div class="sl-finds">` + sl.items.map((f) => `<div class="sl-card sl-find"><span class="pill ${f.severity}">${escapeHtml(f.label)}</span>` +
+            `<div><b>${escapeHtml(f.title)}</b><small>${escapeHtml(f.detail)}</small></div></div>`).join("") + `</div></div></div>`;
+      }
+      default:
+        return `<div class="sl">${head(sl.title)}<div class="sl-closing">` + (sl.bullets || []).map((b, j) =>
+          `<div class="sl-card sl-end"><span style="background:#${th.palette[j % th.palette.length]}">${j + 1}</span>` +
+          editable(`${p}.bullets.${j}`, "p", "sl-b", b) + `</div>`).join("") + `</div></div>`;
+    }
+  }
+
+  function applyTheme(el) {
+    const th = deckState.deck.themes[deckState.theme];
+    const v = { bg: th.bg, bg2: th.bg2, fg: th.fg, muted: th.muted, accent: th.accent, accent2: th.accent2, card: th.card };
+    Object.entries(v).forEach(([k, c]) => el.style.setProperty("--sl-" + k, "#" + c));
+  }
+
+  function renderDeck() {
+    const d = deckState.deck;
+    if (!d) return;
+    const th = d.themes[deckState.theme];
+    applyTheme(deckStage);
+    deckStage.innerHTML = slideHtml(d.slides[deckState.idx], deckState.idx, th);
+    deckThumbs.innerHTML = d.slides.map((sl, i) =>
+      `<button type="button" class="deck-thumb${i === deckState.idx ? " active" : ""}" data-i="${i}"><span class="thumb-stage" data-i="${i}"></span><em>${i + 1}</em></button>`).join("");
+    deckThumbs.querySelectorAll(".thumb-stage").forEach((el) => {
+      applyTheme(el);
+      el.innerHTML = slideHtml(d.slides[Number(el.dataset.i)], Number(el.dataset.i), th).replace(/contenteditable="true"/g, "");
+    });
+    deckThemes.innerHTML = Object.entries(d.themes).map(([k, x]) =>
+      `<button type="button" class="deck-theme${k === deckState.theme ? " active" : ""}" data-theme="${k}" title="${escapeHtml(x.name)}" ` +
+      `style="background:linear-gradient(135deg,#${x.bg2} 50%,#${x.accent} 50%)"></button>`).join("");
+    document.getElementById("deckPos").textContent = `${deckState.idx + 1} / ${d.slides.length}`;
+    document.getElementById("deckTitle").textContent = d.title;
+    fitDeck();
+  }
+
+  function fitDeck() {
+    const host = deckFrame.parentElement;
+    const k = Math.min(host.clientWidth / SW, host.clientHeight / SH) || 0.5;
+    deckFrame.style.width = SW * k + "px";
+    deckFrame.style.height = SH * k + "px";
+    deckStage.style.transform = `scale(${k})`;
+  }
+
+  function goSlide(i) {
+    const n = deckState.deck.slides.length;
+    deckState.idx = Math.max(0, Math.min(n - 1, i));
+    renderDeck();
+  }
+
+  function setAiStatus(key) { deckAi.textContent = key ? t(key) : ""; deckAi.dataset.state = key || ""; }
+
+  async function polishDeck() {
+    const gen = ++deckState.gen;
+    setAiStatus("workspace.slide.ai.working");
     try {
-      const res = await fetch(api("/export/slides"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
+      const res = await fetch(api("/export/slides/polish"), {
+        method: "POST", noLoader: true, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deck: deckState.deck }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Gagal membuat outline");
-      slideResult.innerHTML = data.slides
-        .map((s) => `<div class="slide-item"><h4>${s.title}</h4><ul>${(s.bullets || []).map((b) => `<li>${b}</li>`).join("")}</ul></div>`)
-        .join("");
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+      if (gen !== deckState.gen) return;
+      deckState.deck.slides.forEach((sl, i) => {
+        const o = data.slides && data.slides[sl.id];
+        if (!o) return;
+        if (o.title && !deckState.edited.has(`slides.${i}.title`)) sl.title = o.title;
+        if (o.bullets && o.bullets.length && !deckState.edited.has(`slides.${i}.bullets`) && sl.type !== "kpis" && sl.type !== "findings") sl.bullets = o.bullets;
+      });
+      // Jangan menggambar ulang saat user sedang mengetik di slide (fokus akan hilang)
+      if (deckStage.contains(document.activeElement) && document.activeElement.isContentEditable) deckState.pendingRender = true;
+      else renderDeck();
+      setAiStatus("workspace.slide.ai.done");
     } catch (err) {
-      slideResult.innerHTML = `<p>Gagal: ${err.message}</p>`;
+      if (gen === deckState.gen) setAiStatus("workspace.slide.ai.fail");
+    }
+  }
+
+  function openDeck(deck) {
+    deckState.deck = deck;
+    deckState.theme = deck.theme || "aurora";
+    deckState.idx = 0;
+    deckState.edited = new Set();
+    slideModal.classList.remove("open");
+    deckViewer.hidden = false;
+    document.body.classList.add("deck-open");
+    renderDeck();
+    polishDeck();
+  }
+
+  function closeDeck() {
+    deckState.gen++;
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    deckViewer.hidden = true;
+    document.body.classList.remove("deck-open");
+  }
+
+  document.getElementById("slideGenerate").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const topic = document.getElementById("slideTopic").value.trim();
+    slideResult.textContent = t("workspace.slide.building");
+    btn.disabled = true;
+    try {
+      const res = await fetch(api("/export/slides"), {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, sheet: state.sheet, lang: currentLang() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Gagal membuat slide");
+      openDeck(data.deck);
+    } catch (err) {
+      slideResult.textContent = t("workspace.chat.errorPrefix") + ": " + err.message;
+    } finally {
+      btn.disabled = false;
     }
   });
+
+  deckThumbs.addEventListener("click", (e) => {
+    const b = e.target.closest(".deck-thumb");
+    if (b) goSlide(Number(b.dataset.i));
+  });
+  deckThemes.addEventListener("click", (e) => {
+    const b = e.target.closest(".deck-theme");
+    if (!b) return;
+    deckState.theme = b.dataset.theme;
+    deckState.deck.theme = b.dataset.theme;
+    renderDeck();
+  });
+  document.getElementById("deckPrev").addEventListener("click", () => goSlide(deckState.idx - 1));
+  document.getElementById("deckNext").addEventListener("click", () => goSlide(deckState.idx + 1));
+  document.getElementById("deckClose").addEventListener("click", closeDeck);
+  document.getElementById("deckPresent").addEventListener("click", () => {
+    const host = document.getElementById("deckMain");
+    if (host.requestFullscreen) host.requestFullscreen().catch(() => {});
+  });
+
+  // Edit teks langsung di slide -> disimpan ke deck (dipakai juga saat ekspor PPTX)
+  deckStage.addEventListener("input", (e) => {
+    const el = e.target.closest("[data-path]");
+    if (!el) return;
+    const path = el.dataset.path;
+    setPath(deckState.deck, path, el.textContent);
+    deckState.edited.add(path);
+    if (/\.bullets\.\d+$/.test(path)) deckState.edited.add(path.replace(/\.\d+$/, ""));
+    if (path === "title") { deckState.deck.slides[0].title = el.textContent; document.getElementById("deckTitle").textContent = el.textContent; }
+  });
+  deckStage.addEventListener("focusout", () => {
+    if (!deckState.pendingRender) return;
+    setTimeout(() => {
+      const a = document.activeElement;
+      if (a && deckStage.contains(a) && a.isContentEditable) return;
+      deckState.pendingRender = false;
+      renderDeck();
+    }, 0);
+  });
+  deckStage.addEventListener("blur", (e) => {
+    if (e.target.closest && e.target.closest("[data-path]")) {
+      const thumb = deckThumbs.querySelector(`.deck-thumb[data-i="${deckState.idx}"] .thumb-stage`);
+      if (thumb) thumb.innerHTML = slideHtml(deckState.deck.slides[deckState.idx], deckState.idx, deckState.deck.themes[deckState.theme]).replace(/contenteditable="true"/g, "");
+    }
+  }, true);
+
+  document.getElementById("deckExport").addEventListener("click", async (e) => {
+    const btn = e.currentTarget, label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = t("workspace.slide.exporting");
+    try {
+      const res = await fetch(api("/export/slides.pptx"), {
+        method: "POST", noLoader: true, headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deck: deckState.deck, theme: deckState.theme }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "HTTP " + res.status);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = (deckState.deck.title || "slide").replace(/[^\w.-]+/g, "_").slice(0, 60) + ".pptx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (deckViewer.hidden) return;
+    const typing = e.target.closest && e.target.closest("[contenteditable]");
+    if (e.key === "Escape" && !document.fullscreenElement) { closeDeck(); return; }
+    if (typing) return;
+    if (["ArrowRight", "PageDown", " "].includes(e.key)) { e.preventDefault(); goSlide(deckState.idx + 1); }
+    else if (["ArrowLeft", "PageUp"].includes(e.key)) { e.preventDefault(); goSlide(deckState.idx - 1); }
+    else if (e.key === "f" || e.key === "F") document.getElementById("deckPresent").click();
+  }, { signal: pageSignal });
+  window.addEventListener("resize", () => { if (!deckViewer.hidden) fitDeck(); }, { signal: pageSignal });
+  document.addEventListener("fullscreenchange", () => { if (!deckViewer.hidden) setTimeout(fitDeck, 60); }, { signal: pageSignal });
 
   // ---------- Modal unggah file ----------
 
