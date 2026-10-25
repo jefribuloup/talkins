@@ -29,7 +29,26 @@ TEXTS = {
     "id": {
         "grade.good": "baik", "grade.fair": "cukup", "grade.poor": "perlu perbaikan",
         "dup_rows.t": "Baris dobel", "dup_rows.d": "{n} baris merupakan salinan persis dari baris lain (dari {g} kelompok data kembar). Contoh baris: {ex}.",
-        "dup_keys.t": "Nilai kembar di kolom {col}", "dup_keys.d": "Kolom {col} hampir unik, tetapi ada {n} nilai yang muncul lebih dari sekali — kemungkinan kolom ID/kode yang seharusnya unik. Contoh: {ex}.",
+        "dup_keys.t": "ID/nomor kembar di kolom {col}", "dup_keys.d": "{n} sel di kolom {col} (kolom ID/nomor induk, seharusnya unik) berisi nilai yang muncul lebih dari sekali. Contoh: {ex}.",
+        "id_len.t": "Panjang ID tidak seragam di kolom {col}", "id_len.d": "{n} nilai panjangnya berbeda dari mayoritas ({len} digit), mis. {ex}. Periksa salah ketik atau angka nol di depan yang hilang.",
+        "type.finance": "Data keuangan", "type.academic": "Data akademik / kemahasiswaan", "type.hr": "Data kepegawaian",
+        "type.sales": "Data penjualan / persediaan", "type.roster": "Daftar data (nama / ID)", "type.generic": "Data umum",
+        "role.id": "ID / nomor induk", "role.index": "Nomor urut", "role.name": "Nama", "role.contact": "Kontak",
+        "role.money": "Nilai uang", "role.quantity": "Jumlah", "role.score": "Nilai / skor", "role.percent": "Persentase",
+        "role.measure": "Angka", "role.category": "Kategori", "role.date": "Tanggal", "role.text": "Teks bebas",
+        "why.labels": "Label kolom/judul yang dikenali: {ex}.",
+        "why.nolabels": "Label kolom tidak jelas, jadi jenis data ditebak dari pola isinya.",
+        "why.ids": "Kolom {cols} adalah ID/nomor induk (bukan angka untuk dijumlahkan), jadi tidak dihitung statistik/grafik angkanya.",
+        "why.money": "Kolom {cols} berisi nilai uang.",
+        "kpi.records": "Jumlah data", "kpi.unique": "ID unik ({col})", "kpi.total": "Total {col}", "kpi.avg": "Rata-rata {col}",
+        "kpi.top": "Terbanyak di {col}",
+        "trend.count": "Jumlah data",
+        "c.type": "Data terdeteksi sebagai: {type}.",
+        "c.fin": "Total {col} = {sum} (rata-rata {avg} per baris, {n} baris).",
+        "c.roster": "Terdapat {n} data{ids}.",
+        "c.ids": " dengan {u} ID unik di kolom {col}",
+        "c.topcat": "Sebaran terbesar di kolom {col}: {v} ({n} data, {pct}%).",
+        "c.score": "Rata-rata {col}: {avg} (rentang {min}–{max}).",
         "blank_rows.t": "Baris kosong di tengah data", "blank_rows.d": "{n} baris tidak berisi apa pun di antara baris yang terisi.",
         "blank_cols.t": "Kolom kosong", "blank_cols.d": "{n} kolom tidak berisi data sama sekali: {ex}.",
         "sparse.t": "Kolom {col} banyak kosong", "sparse.d": "Hanya {pct}% sel di kolom {col} yang terisi ({n} sel kosong).",
@@ -57,7 +76,26 @@ TEXTS = {
     "en": {
         "grade.good": "good", "grade.fair": "fair", "grade.poor": "needs work",
         "dup_rows.t": "Duplicate rows", "dup_rows.d": "{n} rows are exact copies of other rows ({g} groups of identical data). Example rows: {ex}.",
-        "dup_keys.t": "Repeated values in column {col}", "dup_keys.d": "Column {col} is almost unique, but {n} values appear more than once — probably an ID/code column that should be unique. Examples: {ex}.",
+        "dup_keys.t": "Repeated IDs in column {col}", "dup_keys.d": "{n} cells in column {col} (an ID column that should be unique) hold values that appear more than once. Examples: {ex}.",
+        "id_len.t": "Inconsistent ID length in column {col}", "id_len.d": "{n} values differ in length from the majority ({len} digits), e.g. {ex}. Check for typos or lost leading zeros.",
+        "type.finance": "Financial data", "type.academic": "Academic / student data", "type.hr": "Staff / HR data",
+        "type.sales": "Sales / inventory data", "type.roster": "Record list (names / IDs)", "type.generic": "General data",
+        "role.id": "ID / registration no.", "role.index": "Row number", "role.name": "Name", "role.contact": "Contact",
+        "role.money": "Money amount", "role.quantity": "Quantity", "role.score": "Score / grade", "role.percent": "Percentage",
+        "role.measure": "Number", "role.category": "Category", "role.date": "Date", "role.text": "Free text",
+        "why.labels": "Recognised column labels/titles: {ex}.",
+        "why.nolabels": "Column labels are unclear, so the type was inferred from the data patterns.",
+        "why.ids": "Column(s) {cols} are IDs/registration numbers (not numbers to add up), so they get no numeric statistics/charts.",
+        "why.money": "Column(s) {cols} hold money amounts.",
+        "kpi.records": "Records", "kpi.unique": "Unique IDs ({col})", "kpi.total": "Total {col}", "kpi.avg": "Average {col}",
+        "kpi.top": "Most common in {col}",
+        "trend.count": "Records",
+        "c.type": "Data detected as: {type}.",
+        "c.fin": "Total {col} = {sum} (average {avg} per row, {n} rows).",
+        "c.roster": "There are {n} records{ids}.",
+        "c.ids": " with {u} unique IDs in column {col}",
+        "c.topcat": "Largest group in column {col}: {v} ({n} records, {pct}%).",
+        "c.score": "Average {col}: {avg} (range {min}–{max}).",
         "blank_rows.t": "Blank rows inside the data", "blank_rows.d": "{n} rows contain nothing between filled rows.",
         "blank_cols.t": "Empty columns", "blank_cols.d": "{n} columns contain no data at all: {ex}.",
         "sparse.t": "Column {col} is mostly empty", "sparse.d": "Only {pct}% of cells in column {col} are filled ({n} empty cells).",
@@ -82,6 +120,47 @@ TEXTS = {
         "c.truncated": "Note: only the first {n} rows were analysed.",
         "c.formula_scan": "The formula check covers the rows scanned at upload (first 500 rows at most).",
     },
+}
+
+NUMERIC_ROLES = {"money", "quantity", "score", "percent", "measure"}
+
+# Kata kunci label kolom -> peran kolom. Yang dipakai = kata kunci TERPANJANG yang cocok.
+ROLE_KW = {
+    "id": ["nim", "npm", "stambuk", "stb", "nisn", "nis", "nip", "nik", "nidn", "no ktp", "ktp", "id", "kode",
+           "no induk", "nomor induk", "no peserta", "nomor peserta", "no pendaftaran", "no reg", "npwp", "sku", "kd"],
+    "contact": ["telp", "telepon", "tlp", "hp", "no hp", "nomor hp", "no telp", "wa", "whatsapp", "phone", "email", "e mail"],
+    "name": ["nama", "name", "nama lengkap"],
+    "date": ["tanggal", "tgl", "date", "waktu", "periode", "tanggal lahir", "tgl lahir", "bulan", "tahun"],
+    "percent": ["persen", "persentase", "percent", "rasio"],
+    "score": ["ipk", "ips", "skor", "score", "nilai akhir", "nilai angka", "grade"],
+    "quantity": ["qty", "kuantitas", "banyak", "stok", "stock", "unit", "pcs", "sks"],
+    "money": ["harga", "biaya", "nominal", "saldo", "debit", "kredit", "pendapatan", "pemasukan", "pengeluaran",
+              "anggaran", "gaji", "upah", "tagihan", "pembayaran", "bayar", "omzet", "laba", "rugi", "untung", "tarif",
+              "spp", "ukt", "denda", "sisa", "piutang", "hutang", "utang", "rp", "idr", "amount", "price", "cost",
+              "revenue", "salary", "balance", "payment", "income", "expense", "budget", "dana", "honor", "tunjangan",
+              "potongan", "pajak", "bonus"],
+    "amount": ["jumlah", "total", "subtotal", "sub total", "grand total"],
+    "score_or_value": ["nilai"],
+    "category": ["prodi", "program studi", "jurusan", "fakultas", "angkatan", "kelas", "semester", "status",
+                 "jenis kelamin", "gender", "jk", "kota", "kabupaten", "provinsi", "wilayah", "divisi", "bagian",
+                 "jabatan", "kategori", "tipe", "jenis", "golongan", "agama", "unit kerja", "departemen", "cabang",
+                 "sumber", "metode", "kelompok", "tingkat", "tahun masuk", "kecamatan", "kelurahan", "pekerjaan"],
+}
+_INDEX_LABELS = {"no", "nomor", "no urut", "nomor urut", "urut", "num"}
+
+# Kata kunci jenis data (dicocokkan ke label kolom + judul di atas tabel)
+DOMAIN_KW = {
+    "finance": ["keuangan", "saldo", "debit", "kredit", "pendapatan", "pengeluaran", "pemasukan", "anggaran",
+                "biaya", "laba", "rugi", "kas", "bank", "transaksi", "invoice", "tagihan", "pembayaran", "omzet",
+                "rab", "neraca", "jurnal", "akun", "nominal", "revenue", "expense", "budget", "balance", "payment",
+                "amount", "price", "harga", "total", "gaji", "pajak", "spp", "ukt"],
+    "academic": ["nim", "npm", "stambuk", "stb", "nisn", "mahasiswa", "siswa", "prodi", "program studi", "jurusan",
+                 "fakultas", "angkatan", "ipk", "ips", "semester", "nilai", "kelas", "dosen", "mata kuliah",
+                 "matakuliah", "sks", "krs", "khs", "kampus", "akademik", "wisuda", "lulus", "sertifikasi", "uji kompetensi"],
+    "hr": ["nip", "pegawai", "karyawan", "jabatan", "golongan", "gaji", "divisi", "absensi", "cuti", "departemen",
+           "employee", "salary", "payroll", "tunjangan", "unit kerja"],
+    "sales": ["produk", "barang", "stok", "stock", "qty", "penjualan", "pelanggan", "customer", "supplier",
+              "pembelian", "order", "item", "sku", "gudang", "inventory", "pesanan"],
 }
 
 SEV_WEIGHT = {"high": 12, "medium": 6, "low": 2, "info": 0}
@@ -157,6 +236,37 @@ def _classify(v):
     return "text", None
 
 
+def _norm_label(v):
+    t = re.sub(r"[^a-z0-9 ]", " ", str(v).lower().replace(".", " ").replace("_", " ").replace("/", " "))
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _kw_in(text, kw):
+    return re.search(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])", text) is not None
+
+
+def _hint_role(label):
+    """Tebak peran kolom dari teks labelnya (kata kunci terpanjang menang). None kalau tak dikenali."""
+    s = _norm_label(label)
+    if not s:
+        return None
+    if s in _INDEX_LABELS:
+        return "index"
+    best_len, best = 0, None
+    for role, kws in ROLE_KW.items():
+        for kw in kws:
+            if len(kw) > best_len and _kw_in(s, kw):
+                best_len, best = len(kw), role
+    return best
+
+
+def _digits_of(v):
+    if isinstance(v, float) and v == v and v == int(v):
+        v = int(v)
+    t = str(v).strip()
+    return t if t.isdigit() else None
+
+
 def _runs(sorted_vals):
     out, start, prev = [], None, None
     for v in sorted_vals:
@@ -199,7 +309,11 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
     lang = lang if lang in TEXTS else "id"
     X = TEXTS[lang]
 
+    col_display = {}  # "B" -> "B (NIM)" : huruf kolom + label-nya (diisi setelah label dikenali)
+
     def tx(key, **kw):
+        if isinstance(kw.get("col"), str) and kw["col"] in col_display:
+            kw["col"] = col_display[kw["col"]]
         return X[key].format(**kw)
 
     total_rows = len(records)
@@ -240,6 +354,139 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
                         break
                 break
 
+    # ---- Profil: label kolom, peran kolom, jenis data ----
+    labels, label_rows = {}, {}
+    for c in range(ncols):
+        nb = [i for i, k in enumerate(kinds[c]) if k[0] != "blank"]
+        cand = max(skip[c]) if skip[c] else None
+        if cand is None:
+            for i in nb[:3]:
+                if i <= 8 and kinds[c][i][0] == "text" and len(str(val(i, c)).strip()) <= 40 and _hint_role(val(i, c)):
+                    cand = i
+                    break
+        if cand is None and nb and nb[0] <= 8 and kinds[c][nb[0]][0] == "text" and len(str(val(nb[0], c)).strip()) <= 30:
+            rest = [kinds[c][i][0] for i in nb[1:]]
+            if len(rest) >= 3 and sum(1 for k in rest if k in ("num", "numtext", "date")) / len(rest) >= 0.8:
+                cand = nb[0]
+        if cand is not None:
+            labels[c] = str(val(cand, c)).strip()
+            label_rows[c] = cand
+            skip[c].add(cand)
+
+    def num_value(i, c):
+        k = kinds[c][i][0]
+        if k == "num":
+            return float(val(i, c))
+        if k == "numtext":
+            return _parse_numtext(str(val(i, c)).strip())
+        return None
+
+    for c, lb in labels.items():
+        if lb:
+            col_display[_letters(c)] = f"{_letters(c)} ({_short(lb, 20)})"
+    hints = {c: _hint_role(labels[c]) for c in labels}
+    roles, id_meta = {}, {}
+    for c in range(ncols):
+        idx = [i for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c]]
+        if not idx:
+            roles[c] = "empty"
+            continue
+        n = len(idx)
+        hint = hints.get(c)
+        kc = Counter(kinds[c][i][0] for i in idx)
+        raw = [val(i, c) for i in idx]
+        uniq = len({str(v).strip().lower() for v in raw}) / n
+        if kc["date"] / n >= 0.6 or (hint == "date" and kc["date"] / n >= 0.3):
+            roles[c] = "date"
+        elif (kc["num"] + kc["numtext"]) / n >= 0.8:
+            digs = [_digits_of(v) for v in raw]
+            all_int = all(d is not None for d in digs)
+            lens = Counter(len(d) for d in digs if d)
+            mode_len, mode_n = lens.most_common(1)[0] if lens else (0, 0)
+            nums_ = [num_value(i, c) for i in idx]
+            seq = (all_int and n >= 5 and None not in nums_
+                   and sum(1 for a, b in zip(nums_, nums_[1:]) if b - a == 1) / (n - 1) >= 0.9)
+            leading_zero_phone = all_int and mode_n / n >= 0.8 and 9 <= mode_len <= 15 and sum(
+                1 for v in raw if str(v).strip().startswith(("0", "62", "+62"))) / n >= 0.8
+            round_amounts = sum(1 for x in nums_ if x is not None and x % 1000 == 0) / n >= 0.8
+            if hint == "index":
+                roles[c] = "index"
+            elif hint == "id" and all_int and uniq >= 0.5:
+                roles[c] = "id"
+            elif hint in ("money", "quantity", "score", "percent", "amount", "score_or_value"):
+                roles[c] = hint  # label yang jelas mengalahkan tebakan dari pola angka
+            elif hint == "contact" or leading_zero_phone:
+                roles[c] = "contact"
+            elif hint == "category" and len({str(v).strip() for v in raw}) <= 20:
+                roles[c] = "category"
+            elif seq and nums_[0] is not None and nums_[0] <= 1 and mode_len < 6:
+                roles[c] = "index"  # 1, 2, 3, ... = nomor urut
+            elif all_int and uniq >= 0.95 and n >= 5 and mode_len >= 6 and mode_n / n >= 0.8 and not round_amounts:
+                roles[c] = "id"
+            else:
+                roles[c] = "measure"
+            if roles[c] == "id":
+                id_meta[c] = (mode_len, mode_n / n)
+        else:
+            texts_ = [str(v).strip() for v in raw]
+            if sum(1 for x in texts_ if "@" in x and "." in x) / n >= 0.6 or hint == "contact":
+                roles[c] = "contact"
+            elif hint == "id":
+                roles[c] = "id"
+            elif hint == "name":
+                roles[c] = "name"
+            elif hint == "category":
+                roles[c] = "category"
+            elif (n >= 5 and uniq >= 0.9
+                  and sum(1 for x in texts_ if re.fullmatch(r"[A-Za-z0-9\-_/.]{3,24}", x) and re.search(r"\d", x)) / n >= 0.8):
+                roles[c] = "id"
+            elif (n >= 5 and uniq >= 0.7
+                  and sum(1 for x in texts_ if re.fullmatch(r"[^\W\d_]+([ .'\-][^\W\d_]+)+", x)) / n >= 0.8):
+                roles[c] = "name"
+            elif n >= 5 and len(set(texts_)) <= 20 and len(set(texts_)) / n <= 0.5:
+                roles[c] = "category"
+            else:
+                roles[c] = "text"
+
+    # Jenis data: kata kunci label kolom + judul di atas tabel, lalu pola isi data
+    dom = Counter()
+    seen_kw = set()
+    title_texts = [str(val(r, c)).strip() for r in range(min(3, nrows)) for c in range(ncols)
+                   if kinds[c][r][0] == "text" and label_rows.get(c) != r and len(str(val(r, c)).strip()) <= 80]
+    for text, w in [(_norm_label(x), 2) for x in labels.values()] + [(_norm_label(x), 3) for x in title_texts]:
+        for typ, kws in DOMAIN_KW.items():
+            for kw in kws:
+                if _kw_in(text, kw):
+                    dom[typ] += w
+                    seen_kw.add(kw)
+    cur_cells = sum(1 for c in range(ncols) for i, k in enumerate(kinds[c])
+                    if k[0] == "numtext" and _CURRENCY_RE.match(str(val(i, c)).strip()))
+    if cur_cells >= 3:
+        dom["finance"] += 3
+    dom["finance"] += min(6, 2 * sum(1 for c in range(ncols) if roles[c] == "money"))
+    top_type, top_score = (dom.most_common(1)[0] if dom else (None, 0))
+    id_cols = [c for c in range(ncols) if roles[c] == "id"]
+    has_name = any(roles[c] == "name" for c in range(ncols))
+    if top_type and top_score >= 2:
+        dtype = top_type
+    elif id_cols and has_name:
+        dtype = "roster"
+    else:
+        dtype = "generic"
+    confidence = "high" if top_score >= 5 else "medium" if top_score >= 2 else "low"
+
+    # Peran ambigu ("jumlah/total", "nilai") ditentukan oleh jenis data; angka besar di data keuangan = uang
+    for c in range(ncols):
+        if roles[c] == "amount":
+            roles[c] = "money" if dtype == "finance" else "quantity"
+        elif roles[c] == "score_or_value":
+            roles[c] = "money" if dtype == "finance" else "score"
+        elif roles[c] == "measure" and dtype == "finance":
+            xs_ = [abs(x) for x in (num_value(i, c) for i, k in enumerate(kinds[c]) if k[0] in ("num", "numtext")
+                                    and i not in skip[c]) if x is not None]
+            if xs_ and statistics.median(xs_) >= 1000:
+                roles[c] = "money"
+
     findings = []
 
     def add(fid, cat, sev, title, detail, count, rects=None, extra=None):
@@ -266,22 +513,23 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
             tx("dup_rows.d", n=extra_rows, g=len(dup_groups), ex=ex),
             extra_rows, _rows_rects(all_rows, 0, ncols - 1))
 
-    key_shown = 0
-    for c in range(ncols):
-        if key_shown >= 3 or nrows < 10:
-            break
-        idxs = [i for i, k in enumerate(kinds[c]) if k[0] in ("text", "numtext") and i not in skip[c]]
-        if len(idxs) < 10 or len(idxs) / nrows < 0.5:
-            continue
-        cnt = Counter(str(val(i, c)).strip().lower() for i in idxs)
-        dups = {v for v, n in cnt.items() if n > 1}
-        if dups and len(cnt) / len(idxs) >= 0.9:
-            cells = [(i, c) for i in idxs if str(val(i, c)).strip().lower() in dups]
-            n_dup = len(cells)
+    for c in id_cols[:3]:
+        idxs = [i for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c]]
+        norm = {i: (_digits_of(val(i, c)) or str(val(i, c)).strip().lower()) for i in idxs}
+        cnt = Counter(norm.values())
+        dups = {v for v, n_ in cnt.items() if n_ > 1}
+        if dups:
+            cells = [(i, c) for i in idxs if norm[i] in dups]
             ex = ", ".join(_short(v, 16) for v in list(dups)[:3])
-            add(f"dup_key_{c}", "duplicate", "medium", tx("dup_keys.t", col=_letters(c)),
-                tx("dup_keys.d", col=_letters(c), n=n_dup, ex=ex), n_dup, _cells_rects(cells))
-            key_shown += 1
+            add(f"dup_key_{c}", "duplicate", "high", tx("dup_keys.t", col=_letters(c)),
+                tx("dup_keys.d", col=_letters(c), n=len(cells), ex=ex), len(cells), _cells_rects(cells))
+        mode_len, share = id_meta.get(c, (0, 0))
+        if mode_len and share >= 0.8:
+            odd = [i for i in idxs if _digits_of(val(i, c)) and len(_digits_of(val(i, c))) != mode_len]
+            if odd:
+                ex = ", ".join(_short(val(i, c), 16) for i in odd[:3])
+                add(f"id_len_{c}", "format", "medium", tx("id_len.t", col=_letters(c)),
+                    tx("id_len.d", n=len(odd), len=mode_len, ex=ex), len(odd), _cells_rects([(i, c) for i in odd]))
 
     # ---- 2. Kekosongan ----
     blank_rows = [r for r in range(nrows) if all(kinds[c][r][0] == "blank" for c in range(ncols))]
@@ -310,6 +558,8 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
     # ---- 3. Format ----
     for c in range(ncols):
         L = _letters(c)
+        if roles[c] not in NUMERIC_ROLES and roles[c] != "date":
+            continue  # ID/nama/kontak/kategori/teks tidak dinilai "angka nyasar"
         idx = [i for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c]]
         if not idx:
             continue
@@ -440,85 +690,86 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
                 len(manual), _cells_rects([(r, c) for r in manual]))
             shown += 1
 
-    # ---- 5. Analisa & bahan grafik/pivot ----
+    # ---- 5. Analisa & bahan grafik/pivot (hanya kolom yang bermakna menurut perannya) ----
+    PREF = {"money": 0, "quantity": 1, "measure": 2, "score": 3, "percent": 4}
     numeric, categories, dates, histograms = [], [], [], []
-    num_cols = []   # indeks kolom angka (urut kemunculan)
-    cat_rows = {}   # indeks kolom -> [(baris, nilai)] untuk tabel pivot
-    date_cols = []
+    num_cols, cat_rows, date_cols = [], {}, []
     for c in range(ncols):
-        L = _letters(c)
-        idx = [i for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c]]
-        if not idx:
-            continue
-        nums = [(i, val(i, c)) for i in idx if kinds[c][i][0] == "num"]
-        if len(nums) >= 3 and len(nums) / len(idx) >= 0.6 and len(numeric) < 8:
-            xs = [float(v) for _, v in nums]
-            q = statistics.quantiles(xs, n=4) if len(xs) >= 4 else None
-            outl = []
-            lo = hi = None
-            if q:
-                iqr = q[2] - q[0]
-                lo, hi = q[0] - 1.5 * iqr, q[2] + 1.5 * iqr
-                if iqr > 0:
-                    outl = [(i, c) for i, v in nums if v < lo or v > hi]
-            num_cols.append(c)
-            numeric.append({"col": L, "n": len(xs), "min": min(xs), "max": max(xs),
-                            "mean": sum(xs) / len(xs), "median": statistics.median(xs),
-                            "outliers": len(outl)})
-            if outl and len(outl) <= max(3, 0.1 * len(xs)):
-                add(f"outliers_{c}", "insight", "low", tx("outliers.t", col=L),
-                    tx("outliers.d", n=len(outl), col=L, lo=_fmt_num(lo), hi=_fmt_num(hi)),
-                    len(outl), _cells_rects(outl))
-            # Histogram (sebaran nilai), maksimal 4 kolom
-            if len(histograms) < 4:
-                k = min(10, max(5, int(math.log2(len(xs))) + 1))
-                mn, mx = min(xs), max(xs)
-                if mx > mn:
-                    w = (mx - mn) / k
-                    bins = [{"lo": mn + j * w, "hi": mn + (j + 1) * w, "count": 0, "cells": []} for j in range(k)]
-                    for i, v in nums:
-                        j = min(int((float(v) - mn) / w), k - 1)
-                        bins[j]["count"] += 1
-                        bins[j]["cells"].append((i, c))
-                    histograms.append({"col": L, "bins": [
-                        {"lo": b_["lo"], "hi": b_["hi"], "count": b_["count"],
-                         "targets": _cells_rects(b_["cells"])} for b_ in bins]})
-
-        vals = [(i, str(val(i, c)).strip()) for i in idx if kinds[c][i][0] == "text"]
-        if len(categories) < 3 and len(vals) >= 5 and len(vals) / len(idx) >= 0.8:
-            cnt = Counter(v for _, v in vals)
-            # Sel teks pertama yang unik & beda dari sisanya kemungkinan label kolom -> jangan dihitung
-            if cnt[vals[0][1]] == 1 and 2 <= len(cnt) - 1 <= 20 and (len(cnt) - 1) / (len(vals) - 1) <= 0.5:
-                vals = vals[1:]
+        L, role = _letters(c), roles[c]
+        if role in NUMERIC_ROLES:
+            nums = [(i, num_value(i, c)) for i in range(nrows)
+                    if kinds[c][i][0] in ("num", "numtext") and i not in skip[c]]
+            nums = [(i, v) for i, v in nums if v is not None]
+            n_nb = sum(1 for i, k in enumerate(kinds[c]) if k[0] != "blank" and i not in skip[c])
+            if len(nums) >= 3 and len(nums) / max(n_nb, 1) >= 0.6 and len(numeric) < 8:
+                xs = [float(v) for _, v in nums]
+                q = statistics.quantiles(xs, n=4) if len(xs) >= 4 else None
+                outl = []
+                lo = hi = None
+                if q:
+                    iqr = q[2] - q[0]
+                    lo, hi = q[0] - 1.5 * iqr, q[2] + 1.5 * iqr
+                    if iqr > 0:
+                        outl = [(i, c) for i, v in nums if v < lo or v > hi]
+                num_cols.append(c)
+                numeric.append({"col": L, "role": role, "n": len(xs), "min": min(xs), "max": max(xs),
+                                "mean": sum(xs) / len(xs), "median": statistics.median(xs),
+                                "outliers": len(outl)})
+                if outl and len(outl) <= max(3, 0.1 * len(xs)):
+                    add(f"outliers_{c}", "insight", "low", tx("outliers.t", col=L),
+                        tx("outliers.d", n=len(outl), col=L, lo=_fmt_num(lo), hi=_fmt_num(hi)),
+                        len(outl), _cells_rects(outl))
+                if len(histograms) < 4:  # histogram (sebaran nilai)
+                    k = min(10, max(5, int(math.log2(len(xs))) + 1))
+                    mn, mx = min(xs), max(xs)
+                    if mx > mn:
+                        w = (mx - mn) / k
+                        bins = [{"lo": mn + j * w, "hi": mn + (j + 1) * w, "count": 0, "cells": []} for j in range(k)]
+                        for i, v in nums:
+                            j = min(int((float(v) - mn) / w), k - 1)
+                            bins[j]["count"] += 1
+                            bins[j]["cells"].append((i, c))
+                        histograms.append({"col": L, "role": role, "bins": [
+                            {"lo": b_["lo"], "hi": b_["hi"], "count": b_["count"],
+                             "targets": _cells_rects(b_["cells"])} for b_ in bins]})
+        elif role == "category" and len(categories) < 3:
+            vals = [(i, str(val(i, c)).strip()) for i in range(nrows)
+                    if kinds[c][i][0] in ("text", "num", "numtext") and i not in skip[c]]
+            if len(vals) >= 5:
                 cnt = Counter(v for _, v in vals)
-            if 2 <= len(cnt) <= 20 and len(cnt) / len(vals) <= 0.5:
-                top = cnt.most_common(8)
-                top_set = {k for k, _ in top}
-                categories.append({
-                    "col": L, "ci": c, "total": len(vals), "unique": len(cnt),
-                    "top": [{"value": _short(k, 22), "count": n,
-                             "targets": _cells_rects([(i, c) for i, v in vals if v == k])}
-                            for k, n in top],
-                    "others": sum(1 for _, v in vals if v not in top_set)})
-                cat_rows[c] = (vals, [k for k, _ in top])
-        isod = sorted(str(val(i, c)).strip()[:10] for i in idx if kinds[c][i][1] == "iso")
-        if len(isod) >= 3 and len(isod) / len(idx) >= 0.6 and len(dates) < 3:
-            dates.append({"col": L, "n": len(isod), "min": isod[0], "max": isod[-1]})
-            date_cols.append(c)
+                if 2 <= len(cnt) <= 20 and len(cnt) / len(vals) <= 0.5:
+                    top = cnt.most_common(8)
+                    top_set = {k for k, _ in top}
+                    categories.append({
+                        "col": L, "ci": c, "total": len(vals), "unique": len(cnt),
+                        "top": [{"value": _short(k, 22), "count": n_,
+                                 "targets": _cells_rects([(i, c) for i, v in vals if v == k])}
+                                for k, n_ in top],
+                        "others": sum(1 for _, v in vals if v not in top_set)})
+                    cat_rows[c] = (vals, [k for k, _ in top])
+        elif role == "date":
+            isod = sorted(str(val(i, c)).strip()[:10] for i in range(nrows)
+                          if kinds[c][i][1] == "iso" and i not in skip[c])
+            if len(isod) >= 3 and len(dates) < 3:
+                dates.append({"col": L, "n": len(isod), "min": isod[0], "max": isod[-1]})
+                date_cols.append(c)
 
-    # ---- Tabel pivot: kategori x (hitung, jumlah, rata-rata kolom angka) ----
+    meas = sorted(num_cols, key=lambda c: PREF.get(roles[c], 9))
+
+    # ---- Tabel pivot: kategori x (hitung + jumlah/rata-rata kolom angka bermakna) ----
     pivots = []
-    for ci, (vals, top_keys) in list(cat_rows.items())[:2]:
-        measures = [nc for nc in num_cols if nc != ci][:2]
-        groups = [(k, [i for i, v in vals if v == k]) for k in top_keys]
-        rest = [i for i, v in vals if v not in set(top_keys)]
+    for ci, (pvals, top_keys) in list(cat_rows.items())[:2]:
+        measures = [nc for nc in meas if nc != ci][:2]
+        top_set = set(top_keys)
+        groups = [(k, [i for i, v in pvals if v == k]) for k in top_keys]
+        rest = [i for i, v in pvals if v not in top_set]
         if rest:
             groups.append((None, rest))
 
         def agg(rows_):
             out = {"count": len(rows_), "m": []}
             for nc in measures:
-                xs = [float(val(i, nc)) for i in rows_ if kinds[nc][i][0] == "num" and i not in skip[nc]]
+                xs = [x for x in (num_value(i, nc) for i in rows_) if x is not None and i not in skip[nc]]
                 out["m"].append({"sum": sum(xs), "avg": (sum(xs) / len(xs)) if xs else None})
             return out
 
@@ -529,34 +780,38 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
             r_["label"] = None if k is None else _short(k, 22)
             r_["src"] = [cat_index, gi] if k is not None else None
             prow.append(r_)
-        pivots.append({"col": _letters(ci), "measures": [_letters(nc) for nc in measures],
-                       "rows": prow, "total": agg([i for i, _ in vals])})
+        pivots.append({"col": _letters(ci),
+                       "measures": [{"col": _letters(nc), "role": roles[nc]} for nc in measures],
+                       "rows": prow, "total": agg([i for i, _ in pvals])})
 
-    # ---- Tren: kolom tanggal ISO x kolom angka, dijumlah per bulan (atau per hari) ----
+    # ---- Tren: kolom tanggal ISO x (jumlah kolom uang/kuantitas, atau jumlah data) per bulan/hari ----
     trend = None
-    if date_cols and num_cols:
+    if date_cols:
+        import datetime as _dt
         dc = date_cols[0]
-        ms = [nc for nc in num_cols if nc != dc][:2]
-        if ms:
-            import datetime as _dt
-            ds = [(i, str(val(i, dc)).strip()[:10]) for i in range(nrows)
-                  if kinds[dc][i][1] == "iso" and i not in skip[dc]]
-            try:
-                span = (_dt.date.fromisoformat(max(d for _, d in ds)) - _dt.date.fromisoformat(min(d for _, d in ds))).days
-            except ValueError:
-                span = 0
-            gran = "month" if span >= 60 else "day"
-            agg_t = defaultdict(lambda: [0.0] * len(ms))
-            for i, d in ds:
-                key = d[:7] if gran == "month" else d
-                for j, nc in enumerate(ms):
-                    if kinds[nc][i][0] == "num" and i not in skip[nc]:
-                        agg_t[key][j] += float(val(i, nc))
-            keys = sorted(agg_t)[-36:]
-            if len(keys) >= 2:
-                trend = {"date_col": _letters(dc), "cols": [_letters(nc) for nc in ms],
-                         "granularity": gran,
-                         "points": [{"label": k, "values": agg_t[k]} for k in keys]}
+        tm = [nc for nc in meas if roles[nc] in ("money", "quantity", "measure") and nc != dc][:2]
+        ds = [(i, str(val(i, dc)).strip()[:10]) for i in range(nrows)
+              if kinds[dc][i][1] == "iso" and i not in skip[dc]]
+        try:
+            span = (_dt.date.fromisoformat(max(d for _, d in ds)) - _dt.date.fromisoformat(min(d for _, d in ds))).days
+        except ValueError:
+            span = 0
+        gran = "month" if span >= 60 else "day"
+        width_ = max(len(tm), 1)
+        agg_t = defaultdict(lambda: [0.0] * width_)
+        for i, d in ds:
+            key = d[:7] if gran == "month" else d
+            if tm:
+                for j, nc in enumerate(tm):
+                    x = num_value(i, nc)
+                    if x is not None and i not in skip[nc]:
+                        agg_t[key][j] += x
+            else:
+                agg_t[key][0] += 1
+        keys = sorted(agg_t)[-36:]
+        if len(keys) >= 2:
+            trend = {"date_col": _letters(dc), "cols": [_letters(nc) for nc in tm] or [tx("trend.count")],
+                     "granularity": gran, "points": [{"label": k, "values": agg_t[k]} for k in keys]}
 
     # ---- Skor, urutan, kesimpulan ----
     findings.sort(key=lambda f: (SEV_ORDER[f["severity"]], -f["count"]))
@@ -568,13 +823,69 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
         findings.insert(0, {"id": "ok", "category": "ok", "severity": "ok", "title": tx("ok.t"),
                             "detail": tx("ok.d"), "count": 0, "targets": []})
 
-    concl = [tx("c.open", rows=nrows, cols=ncols, fill=fill_pct, score=score, grade=grade)]
+    # ---- Profil jenis data + kartu ringkas (KPI) ----
+    def fmt_big(x):
+        return f"{x:,.0f}".replace(",", ".") if abs(x) >= 1000 else _fmt_num(x)
+
+    n_records = sum(1 for r in range(nrows)
+                    if any(kinds[c][r][0] != "blank" and r not in skip[c] for c in range(ncols)))
+    def sn(c):  # nama pendek kolom untuk kartu: label kalau ada, kalau tidak huruf kolom
+        return _short(labels[c], 22) if labels.get(c) else _letters(c)
+
+    kpis = [{"label": tx("kpi.records"), "value": n_records}]
+    concl_extra = []
+    if dtype == "finance":
+        for c in [c for c in num_cols if roles[c] == "money"][:3]:
+            xs = [x for x in (num_value(i, c) for i in range(nrows) if i not in skip[c]) if x is not None]
+            if xs:
+                kpis.append({"label": tx("kpi.total", col=sn(c)), "value": sum(xs),
+                             "sub": f"{tx('kpi.avg', col=sn(c))}: {fmt_big(sum(xs) / len(xs))}"})
+                concl_extra.append(tx("c.fin", col=_letters(c), sum=fmt_big(sum(xs)),
+                                      avg=fmt_big(sum(xs) / len(xs)), n=len(xs)))
+    else:
+        for c in id_cols[:1]:
+            ids = [str(val(i, c)).strip() for i in range(nrows) if kinds[c][i][0] != "blank" and i not in skip[c]]
+            kpis.append({"label": tx("kpi.unique", col=sn(c)), "value": len(set(ids))})
+            concl_extra.append(tx("c.roster", n=n_records, ids=tx("c.ids", u=len(set(ids)), col=_letters(c))))
+        if not id_cols:
+            concl_extra.append(tx("c.roster", n=n_records, ids=""))
+        for c in [c for c in num_cols if roles[c] == "score"][:2]:
+            xs = [x for x in (num_value(i, c) for i in range(nrows) if i not in skip[c]) if x is not None]
+            if xs:
+                kpis.append({"label": tx("kpi.avg", col=sn(c)), "value": sum(xs) / len(xs)})
+                concl_extra.append(tx("c.score", col=_letters(c), avg=_fmt_num(round(sum(xs) / len(xs), 2)),
+                                      min=_fmt_num(min(xs)), max=_fmt_num(max(xs))))
+    for cat in categories[: (1 if dtype == "finance" else 2)]:
+        tp = cat["top"][0]
+        kpis.append({"label": tx("kpi.top", col=sn(cat["ci"])), "value": tp["value"], "sub": str(tp["count"])})
+        concl_extra.append(tx("c.topcat", col=cat["col"], v=tp["value"], n=tp["count"],
+                              pct=round(100 * tp["count"] / max(cat["total"], 1))))
+
+    why = []
+    if labels:
+        why.append(tx("why.labels", ex=", ".join(f"{_letters(c)}={_short(labels[c], 18)}" for c in list(labels)[:6])))
+    else:
+        why.append(tx("why.nolabels"))
+    if id_cols:
+        why.append(tx("why.ids", cols=", ".join(_letters(c) for c in id_cols)))
+    money_cols = [c for c in range(ncols) if roles[c] == "money"]
+    if money_cols:
+        why.append(tx("why.money", cols=", ".join(_letters(c) for c in money_cols)))
+    dataset = {
+        "type": dtype, "label": tx("type." + dtype), "confidence": confidence, "why": why, "kpis": kpis[:7],
+        "roles": [{"col": _letters(c), "label": labels.get(c, ""), "role": roles[c],
+                   "role_label": tx("role." + roles[c])} for c in range(ncols)
+                  if roles[c] != "empty"][:40],
+    }
+
+    concl = [tx("c.open", rows=nrows, cols=ncols, fill=fill_pct, score=score, grade=grade),
+             tx("c.type", type=dataset["label"])] + concl_extra
     if issues:
         top = [f"{f['title']} ({f['count']})" for f in issues[:3]]
         concl.append(tx("c.prio", items="; ".join(top)))
     else:
         concl.append(tx("c.clean"))
-    if numeric or categories:
+    if dtype in ("finance", "sales", "generic") and (numeric or categories):
         concl.append(tx("c.potential", num=len(numeric), cat=len(categories)))
     if dates:
         concl.append(tx("c.dates", cols=", ".join(d["col"] for d in dates)))
@@ -587,6 +898,7 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
         "summary": {"rows": total_rows, "cols": ncols, "cells": cells_total, "filled": filled_total,
                     "empty": cells_total - filled_total, "fill_pct": fill_pct, "score": score,
                     "grade": grade, "truncated": truncated},
+        "dataset": dataset,
         "conclusion": concl,
         "findings": findings,
         "column_fill": column_fill[:60],
