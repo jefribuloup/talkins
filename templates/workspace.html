@@ -126,11 +126,31 @@
 
 <div class="modal" id="slideModal">
   <div class="modal-box">
-    <h3 data-i18n="workspace.slide.title">Outline slide dari data ini</h3>
+    <h3 data-i18n="workspace.slide.title">Buat slide dari data ini</h3>
+    <p class="fp-note" data-i18n="workspace.slide.desc">Slide disusun otomatis dari data (judul, angka kunci, grafik, tabel ringkasan, kualitas data) dan bisa diunduh sebagai PowerPoint.</p>
     <input type="text" id="slideTopic" data-i18n-placeholder="workspace.slide.topicPlaceholder" placeholder="Topik slide, mis. 'Ringkasan penjualan Q3'">
-    <button class="btn btn-primary" id="slideGenerate" data-i18n="workspace.slide.generate">Buat outline</button>
+    <button class="btn btn-primary" id="slideGenerate" data-i18n="workspace.slide.generate">Buat slide</button>
     <div id="slideResult" class="slide-result"></div>
     <button class="btn" id="slideClose" data-i18n="workspace.slide.close">Tutup</button>
+  </div>
+</div>
+
+<div class="deck-viewer" id="deckViewer" hidden>
+  <div class="deck-top">
+    <strong class="deck-name" id="deckTitle"></strong>
+    <span class="deck-ai" id="deckAi"></span>
+    <span class="deck-hint" data-i18n="workspace.slide.edit">Klik teks di slide untuk mengedit</span>
+    <div class="deck-themes" id="deckThemes" role="group"></div>
+    <button class="btn" id="deckPresent" data-i18n="workspace.slide.present">Presentasi</button>
+    <button class="btn btn-primary" id="deckExport" data-i18n="workspace.slide.export">Unduh PPTX</button>
+    <button class="btn" id="deckClose" data-i18n="workspace.slide.close">Tutup</button>
+  </div>
+  <div class="deck-body">
+    <div class="deck-thumbs" id="deckThumbs"></div>
+    <div class="deck-main" id="deckMain">
+      <div class="deck-canvas"><div class="deck-frame" id="deckFrame"><div class="deck-stage" id="deckStage"></div></div></div>
+      <div class="deck-nav"><button type="button" class="btn" id="deckPrev" aria-label="Sebelumnya">‹</button><span id="deckPos"></span><button type="button" class="btn" id="deckNext" aria-label="Berikutnya">›</button></div>
+    </div>
   </div>
 </div>
 
