@@ -640,3 +640,37 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 .login-submit:disabled { opacity: 0.7; cursor: progress; }
 .login-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--grid-line); }
+
+/* ---------- Form daftar responsif: grid kiri-kanan di desktop & tablet, 1 kolom di mobile ---------- */
+
+.login-card { width: 100%; max-width: 420px; transition: max-width 0.25s ease, padding 0.25s ease; }
+
+.login-form-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
+.login-form-grid > * { min-width: 0; }              /* cegah input meluap dari kolom */
+.login-form-grid .field-span,
+.login-form-grid .login-submit { grid-column: 1 / -1; }
+.login-form-grid { align-items: start; }
+
+/* Tombol Google & pembatas tetap proporsional di kartu yang lebar */
+.login-card.is-register .login-divider,
+.login-card.is-register .btn-google { max-width: 420px; margin-left: auto; margin-right: auto; }
+.login-card.is-register .login-divider { box-sizing: border-box; }
+
+/* Desktop (>= 1024px): kartu lebar, 2 kolom */
+@media (min-width: 1024px) {
+  .login-card.is-register { max-width: 780px; padding: 36px 44px 28px; }
+  .login-form-grid { grid-template-columns: 1fr 1fr; gap: 18px 26px; }
+}
+
+/* Tablet (640px - 1023px): kartu sedang, tetap 2 kolom */
+@media (min-width: 640px) and (max-width: 1023.98px) {
+  .login-card.is-register { max-width: 620px; padding: 30px 28px 24px; }
+  .login-form-grid { grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+}
+
+/* Mobile (< 640px): 1 kolom, kartu hampir selebar layar */
+@media (max-width: 639.98px) {
+  .login-wrap { padding: 24px 14px; align-items: flex-start; }
+  .login-card { padding: 24px 18px 20px; }
+  .login-form-grid { grid-template-columns: 1fr; gap: 14px; }
+}
