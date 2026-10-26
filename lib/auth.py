@@ -20,12 +20,14 @@ Environment variable:
   REQUIRE_LOGIN=1    (opsional, wajib login untuk memakai aplikasi; default mati)
 """
 import os
+import re
 import secrets
 import uuid
 from urllib.parse import urlencode, urlparse
 
 import requests
 from flask import redirect, request, session, jsonify, render_template
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from lib import db
 
@@ -33,6 +35,13 @@ GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 DEFAULT_SECRET = "dev-secret-change-me"
+
+# Login manual (username + kata sandi)
+USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,30}$")
+PASSWORD_MIN, PASSWORD_MAX = 8, 128
+MAX_FAILED_ATTEMPTS, LOCK_MINUTES = 5, 15
+# Hash palsu: dipakai agar waktu respons sama saat username tidak ada (cegah user enumeration)
+_DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
 _PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/api/me")
@@ -98,6 +107,22 @@ def _login(user, adopt_from):
     session["session_id"] = sid
 
 
+def _csrf_token():
+    if "csrf" not in session:
+        session["csrf"] = secrets.token_urlsafe(32)
+    return session["csrf"]
+
+
+def _csrf_ok():
+    expected = session.get("csrf", "")
+    given = request.headers.get("X-CSRF-Token", "")
+    return bool(expected) and secrets.compare_digest(expected, given)
+
+
+def _json_error(code, status, **extra):
+    return jsonify(dict(error=code, **extra)), status
+
+
 def _fail(code):
     return redirect("/login?" + urlencode({"error": code}))
 
@@ -131,7 +156,72 @@ def register_routes(app):
     def login_page():
         if current_user():
             return redirect(_safe_next(request.args.get("next")))
-        return render_template("login.html", next_url=_safe_next(request.args.get("next")))
+        return render_template(
+            "login.html", next_url=_safe_next(request.args.get("next")), csrf_token=_csrf_token()
+        )
+
+    @app.route("/auth/register", methods=["POST"])
+    def auth_register():
+        if not _csrf_ok():
+            return _json_error("csrf", 403)
+        data = request.get_json(silent=True) or {}
+        name = " ".join(str(data.get("name", "")).split())[:80]
+        username = str(data.get("username", "")).strip().lower()
+        password = str(data.get("password", ""))
+
+        if not name:
+            return _json_error("name_required", 400)
+        if not USERNAME_RE.match(username):
+            return _json_error("username_invalid", 400)
+        if len(password) < PASSWORD_MIN:
+            return _json_error("password_short", 400)
+        if len(password) > PASSWORD_MAX:
+            return _json_error("password_long", 400)
+        if password.lower() == username:
+            return _json_error("password_weak", 400)
+
+        try:
+            user = db.create_manual_user(username, name, generate_password_hash(password))
+        except Exception:
+            return _json_error("failed", 500)
+        if not user:
+            return _json_error("username_taken", 409)
+        _login(user, adopt_from=session.get("session_id"))
+        return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
+
+    @app.route("/auth/login", methods=["POST"])
+    def auth_login():
+        if not _csrf_ok():
+            return _json_error("csrf", 403)
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username", "")).strip().lower()
+        password = str(data.get("password", ""))
+
+        try:
+            user = db.get_user_for_login(username) if USERNAME_RE.match(username) else None
+        except Exception:
+            return _json_error("failed", 500)
+
+        # Akun terkunci: tolak sebelum memeriksa kata sandi, supaya tebakan tidak bisa dilanjutkan
+        if user and user.get("is_locked"):
+            return _json_error("locked", 429, minutes=max(int(user.get("lock_minutes") or 1), 1))
+
+        stored = user.get("password_hash") if user else None
+        ok = check_password_hash(stored or _DUMMY_HASH, password[:PASSWORD_MAX]) and bool(stored)
+        if not ok:
+            if user and stored:
+                try:
+                    db.record_login_failure(user["id"], MAX_FAILED_ATTEMPTS, LOCK_MINUTES)
+                except Exception:
+                    pass
+            return _json_error("invalid_credentials", 401)  # pesan sama untuk semua kasus gagal
+
+        try:
+            db.reset_login_failures(user["id"])
+        except Exception:
+            pass
+        _login(user, adopt_from=session.get("session_id"))
+        return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
 
     @app.route("/auth/google")
     def auth_google():
@@ -225,5 +315,5 @@ def register_routes(app):
             return jsonify({"authenticated": False})
         return jsonify({
             "authenticated": True,
-            "user": {k: user.get(k) for k in ("id", "email", "name", "picture")},
+            "user": {k: user.get(k) for k in ("id", "username", "email", "name", "picture")},
         })
