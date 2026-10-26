@@ -154,7 +154,7 @@ env-example.txt (format KEY=value, tinggal copy-paste satu-satu):
   GOOGLE_CLIENT_ID      -> OAuth Client ID (Google Cloud Console)
   GOOGLE_CLIENT_SECRET  -> OAuth Client Secret
   APP_BASE_URL    -> opsional, mis. https://talkins.vercel.app (dasar redirect URI)
-  REQUIRE_LOGIN   -> opsional, isi 1 supaya aplikasi wajib login (default: tamu boleh)
+  REQUIRE_LOGIN   -> opsional, isi 0 untuk mematikan wajib login (default: AKTIF, tamu hanya bisa buka beranda & halaman login)
 
 Setup login Google: Google Cloud Console -> APIs & Services -> Credentials ->
 Create Credentials -> OAuth client ID -> Web application. Isi "Authorized redirect URIs":
