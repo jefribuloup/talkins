@@ -42,6 +42,13 @@ _SCHEMA_MIGRATIONS = (
             last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )""",
     "CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email))",
+    "ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL",
+    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL",
 )
 _schema_ready = False
 
@@ -132,6 +139,13 @@ def init_db():
             last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email));
+        ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL;
+        ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;
         """
     )
     conn.commit()
@@ -168,11 +182,82 @@ def upsert_user(google_sub, email, name, picture):
 def get_user(user_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, email, name, picture FROM users WHERE id=%s", (user_id,))
+    cur.execute("SELECT id, username, email, name, picture FROM users WHERE id=%s", (user_id,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     return dict(row) if row else None
+
+
+def create_manual_user(username, name, password_hash):
+    """Daftar manual (username + kata sandi). Mengembalikan user, atau None jika username sudah dipakai."""
+    import uuid as _uuid
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        INSERT INTO users (id, username, name, password_hash)
+        VALUES (%s,%s,%s,%s)
+        ON CONFLICT DO NOTHING
+        RETURNING id, username, email, name, picture
+        """,
+        (str(_uuid.uuid4()), username, name, password_hash),
+    )
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_user_for_login(username):
+    """Data akun untuk verifikasi login manual, termasuk status kunci akun."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, username, email, name, picture, password_hash,
+               (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
+               CEIL(GREATEST(EXTRACT(EPOCH FROM (locked_until - now())), 0) / 60.0)::int AS lock_minutes
+        FROM users WHERE username=%s
+        """,
+        (username,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def record_login_failure(user_id, max_attempts, lock_minutes):
+    """Catat gagal login; setelah max_attempts gagal berturut-turut, akun dikunci sementara."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        UPDATE users SET
+          locked_until = CASE WHEN failed_attempts + 1 >= %s
+                              THEN now() + make_interval(mins => %s) ELSE locked_until END,
+          failed_attempts = CASE WHEN failed_attempts + 1 >= %s THEN 0 ELSE failed_attempts + 1 END
+        WHERE id=%s
+        """,
+        (max_attempts, lock_minutes, max_attempts, user_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def reset_login_failures(user_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET failed_attempts=0, locked_until=NULL, last_login_at=now() WHERE id=%s",
+        (user_id,),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def adopt_session(old_session_id, new_session_id):
