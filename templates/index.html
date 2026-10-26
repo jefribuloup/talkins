@@ -20,7 +20,11 @@
       Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide —
       file asli di komputermu tidak pernah tersentuh sama sekali.
     </p>
+    {% if current_user %}
     <a href="/dashboard" class="btn btn-primary btn-cta" data-i18n="index.hero.cta">Buka Dashboard</a>
+    {% else %}
+    <a href="/login?mode=register" class="btn btn-primary btn-cta" data-i18n="index.hero.ctaGuest">Daftar Gratis untuk Mulai</a>
+    {% endif %}
   </div>
 
   <div class="dropzone hero-visual" id="heroVisual">
