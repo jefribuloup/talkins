@@ -38,6 +38,7 @@ DEFAULT_SECRET = "dev-secret-change-me"
 
 # Login manual (username + kata sandi)
 USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,30}$")
+EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
 MAX_FAILED_ATTEMPTS, LOCK_MINUTES = 5, 15
 # Hash palsu: dipakai agar waktu respons sama saat username tidak ada (cegah user enumeration)
@@ -166,26 +167,32 @@ def register_routes(app):
             return _json_error("csrf", 403)
         data = request.get_json(silent=True) or {}
         name = " ".join(str(data.get("name", "")).split())[:80]
+        email = str(data.get("email", "")).strip().lower()
         username = str(data.get("username", "")).strip().lower()
         password = str(data.get("password", ""))
 
         if not name:
             return _json_error("name_required", 400)
+        if len(email) > 254 or not EMAIL_RE.match(email):
+            return _json_error("email_invalid", 400)
         if not USERNAME_RE.match(username):
             return _json_error("username_invalid", 400)
         if len(password) < PASSWORD_MIN:
             return _json_error("password_short", 400)
         if len(password) > PASSWORD_MAX:
             return _json_error("password_long", 400)
-        if password.lower() == username:
+        if password.lower() in (username, email):
             return _json_error("password_weak", 400)
 
         try:
-            user = db.create_manual_user(username, name, generate_password_hash(password))
+            conflict = db.find_register_conflict(username, email)
+            if conflict:
+                return _json_error(conflict, 409)
+            user = db.create_manual_user(username, name, email, generate_password_hash(password))
+            if not user:  # kalah balapan dgn pendaftar lain yang barusan
+                return _json_error(db.find_register_conflict(username, email) or "username_taken", 409)
         except Exception:
             return _json_error("failed", 500)
-        if not user:
-            return _json_error("username_taken", 409)
         _login(user, adopt_from=session.get("session_id"))
         return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
 
@@ -194,11 +201,13 @@ def register_routes(app):
         if not _csrf_ok():
             return _json_error("csrf", 403)
         data = request.get_json(silent=True) or {}
-        username = str(data.get("username", "")).strip().lower()
+        # Boleh diisi username ATAU email ("identifier"; "username" tetap diterima agar kompatibel)
+        identifier = str(data.get("identifier") or data.get("username") or "").strip().lower()
         password = str(data.get("password", ""))
+        valid_id = bool(EMAIL_RE.match(identifier)) if "@" in identifier else bool(USERNAME_RE.match(identifier))
 
         try:
-            user = db.get_user_for_login(username) if USERNAME_RE.match(username) else None
+            user = db.get_user_for_login(identifier) if valid_id else None
         except Exception:
             return _json_error("failed", 500)
 
