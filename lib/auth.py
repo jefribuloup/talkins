@@ -99,8 +99,9 @@ def current_user():
     return user or None
 
 
-def _login(user, adopt_from):
-    """Tandai sesi sebagai login. Dipanggil hanya setelah identitas Google terverifikasi."""
+def _login(user, adopt_from, notice=None):
+    """Tandai sesi sebagai login. Dipanggil hanya setelah identitas terverifikasi.
+    `notice` ("registered" | "login") ditampilkan sebagai notifikasi sekali pakai di halaman tujuan."""
     sid = _user_session_id(user["id"])
     if adopt_from and not str(adopt_from).startswith("user:"):
         db.adopt_session(adopt_from, sid)  # file & chat tamu -> akun
@@ -108,6 +109,8 @@ def _login(user, adopt_from):
     session.permanent = True
     session["user_id"] = user["id"]
     session["session_id"] = sid
+    if notice:
+        session["notice"] = notice
 
 
 def _csrf_token():
@@ -145,6 +148,8 @@ def register_routes(app):
             "current_user": current_user(),
             "require_login": _require_login(),
             "current_year": datetime.now(timezone.utc).year,
+            # Notifikasi sekali pakai (registered/login): diambil lalu dihapus dari sesi
+            "flash_notice": session.pop("notice", None),
         }
 
     @app.before_request
@@ -199,8 +204,8 @@ def register_routes(app):
                 return _json_error(db.find_register_conflict(username, email) or "username_taken", 409)
         except Exception:
             return _json_error("failed", 500)
-        _login(user, adopt_from=session.get("session_id"))
-        return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
+        _login(user, adopt_from=session.get("session_id"), notice="registered")
+        return jsonify({"ok": True, "redirect": "/dashboard"})  # pendaftar baru langsung ke dashboard
 
     @app.route("/auth/login", methods=["POST"])
     def auth_login():
@@ -235,7 +240,7 @@ def register_routes(app):
             db.reset_login_failures(user["id"])
         except Exception:
             pass
-        _login(user, adopt_from=session.get("session_id"))
+        _login(user, adopt_from=session.get("session_id"), notice="login")
         return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
 
     @app.route("/auth/google")
@@ -312,10 +317,12 @@ def register_routes(app):
                 name=profile.get("name") or email.split("@")[0],
                 picture=profile.get("picture"),
             )
-            _login(user, adopt_from=session.get("session_id"))
+            # upsert_user sudah membuat akun bila belum ada; is_new=True berarti baru saja didaftarkan
+            is_new = bool(user.get("is_new"))
+            _login(user, adopt_from=session.get("session_id"), notice="registered" if is_new else "login")
         except Exception:
             return _fail("failed")
-        return redirect(next_url)
+        return redirect("/dashboard" if is_new else next_url)
 
     @app.route("/auth/logout", methods=["POST"])
     def auth_logout():
