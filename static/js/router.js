@@ -130,6 +130,7 @@
 
     // 6) terjemahkan teks statis konten baru sesuai bahasa yang dipilih
     if (window.MejaDataI18n) window.MejaDataI18n.apply(window.MejaDataI18n.getLang());
+    window.dispatchEvent(new CustomEvent("mejadata:pageenter")); // mis. perbarui menu aktif di navbar
   }
 
   // Jalankan ulang script milik page tujuan secara berurutan.
