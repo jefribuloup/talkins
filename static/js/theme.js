@@ -54,6 +54,11 @@
       if (!d.contains(e.target) || e.target.closest(".user-menu-item")) d.removeAttribute("open");
     });
   });
+  // Notifikasi (toast): hilang otomatis lewat CSS; tombol × menutup lebih cepat
+  document.addEventListener("click", function (e) {
+    var close = e.target.closest ? e.target.closest(".toast-close") : null;
+    if (close && close.parentNode) close.parentNode.remove();
+  });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") document.querySelectorAll("details.user-menu[open]").forEach(function (d) { d.removeAttribute("open"); });
   });
