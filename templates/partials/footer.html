@@ -1,9 +1,45 @@
 <footer class="site-footer">
-  <div class="footer-row">
-    <span class="brand-mark">▦</span>
-    <span data-i18n="footer.tagline">Ngobrol dengan file Excel-mu, tanpa menyentuh file aslinya.</span>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a href="/" class="brand">
+        <span class="brand-badge">▦</span>
+        <span class="brand-name">Meja Data</span>
+      </a>
+      <p data-i18n="footer.desc">Ngobrol dengan file Excel-mu, rapikan datanya, dan ubah jadi slide — tanpa menyentuh file aslinya.</p>
+    </div>
+
+    <div class="footer-col">
+      <h4 data-i18n="footer.col.product">Produk</h4>
+      <ul>
+        <li><a href="/" data-i18n="nav.home">Beranda</a></li>
+        <li><a href="/#cara-kerja" data-i18n="nav.how">Cara Kerja</a></li>
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h4 data-i18n="footer.col.account">Akun</h4>
+      <ul>
+        {% if current_user %}
+        <li><a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a></li>
+        <li>
+          <form method="post" action="/auth/logout"><button type="submit" class="footer-linkbtn" data-i18n="nav.logout">Keluar</button></form>
+        </li>
+        {% else %}
+        <li><a href="/login" data-i18n="nav.login">Masuk</a></li>
+        <li><a href="/login?mode=register" data-i18n="nav.register">Daftar</a></li>
+        {% endif %}
+      </ul>
+    </div>
+
+    <div class="footer-col">
+      <h4 data-i18n="footer.col.project">Proyek</h4>
+      <ul>
+        <li><a href="https://github.com/jefribuloup/talkins" target="_blank" rel="noopener noreferrer" data-no-router>GitHub</a></li>
+      </ul>
+    </div>
   </div>
-  <div class="footer-meta">
-    <span data-i18n="footer.stack">Flask · Neon Postgres · Gemini Flash / Groq</span>
+
+  <div class="footer-bottom">
+    <span>© {{ current_year }} Meja Data. <span data-i18n="footer.rights">Hak cipta dilindungi.</span></span>
   </div>
 </footer>
