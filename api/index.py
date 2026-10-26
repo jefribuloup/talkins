@@ -18,6 +18,7 @@ from lib import excel_engine
 from lib import chat_engine
 from lib import formula_engine
 from lib import slide_engine
+from lib import auth
 
 app = Flask(
     __name__,
@@ -31,6 +32,9 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 
 # Saran rumus untuk sel yang dipilih di tab Rumus: POST /api/formula-suggest
 formula_engine.register_routes(app)
+
+# Login & daftar via Google OAuth: /login, /auth/google, /auth/google/callback, /auth/logout, /api/me
+auth.register_routes(app)
 
 
 @app.before_request
