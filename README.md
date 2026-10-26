@@ -1,4 +1,4 @@
-# Meja Data
+# Meja Data / Talkins
 
 Web app Flask untuk mengunggah file Excel atau link spreadsheet (single/multi-sheet,
 termasuk file kompleks dengan header tidak rapi), mengobrol dengan isinya lewat LLM,
