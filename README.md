@@ -151,6 +151,16 @@ env-example.txt (format KEY=value, tinggal copy-paste satu-satu):
   GEMINI_MODEL    -> default gemini-2.0-flash
   GROQ_API_KEY    -> API key Groq (console.groq.com)
   GROQ_MODEL      -> default llama-3.3-70b-versatile
+  GOOGLE_CLIENT_ID      -> OAuth Client ID (Google Cloud Console)
+  GOOGLE_CLIENT_SECRET  -> OAuth Client Secret
+  APP_BASE_URL    -> opsional, mis. https://talkins.vercel.app (dasar redirect URI)
+  REQUIRE_LOGIN   -> opsional, isi 1 supaya aplikasi wajib login (default: tamu boleh)
+
+Setup login Google: Google Cloud Console -> APIs & Services -> Credentials ->
+Create Credentials -> OAuth client ID -> Web application. Isi "Authorized redirect URIs":
+  https://DOMAIN-KAMU/auth/google/callback
+  http://localhost:5000/auth/google/callback   (untuk uji lokal)
+Layar persetujuan (OAuth consent screen) cukup scope: openid, email, profile.
 
 ## 4. Deploy ke Vercel
 
