@@ -71,6 +71,7 @@
 </div>
 
     <p class="login-error" id="loginError" role="alert" hidden></p>
+    <button type="button" class="login-error-link" id="goRegister" data-i18n="login.error.goRegister" hidden>Belum punya akun? Daftar sekarang</button>
 
     <div class="login-divider"><span data-i18n="login.or">atau</span></div>
 
@@ -107,6 +108,8 @@
     var errEl = document.getElementById("loginError");
 
     function setMode(mode) {
+      var gr = document.getElementById("goRegister");
+      if (gr) gr.hidden = true;
       tabs.forEach(function (t) {
         var on = t.getAttribute("data-mode") === mode;
         t.classList.toggle("active", on);
@@ -137,9 +140,23 @@
     function tr(key) {
       return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
     }
+    var goRegister = document.getElementById("goRegister");
+    var lastIdentifier = "";
+    goRegister.addEventListener("click", function () {
+      setMode("register");
+      errEl.hidden = true;
+      goRegister.hidden = true;
+      // bawa yang sudah diketik: berisi "@" -> email, selain itu -> username
+      var target = document.querySelector('#formRegister [name="' + (lastIdentifier.indexOf("@") > -1 ? "email" : "username") + '"]');
+      if (target && lastIdentifier) target.value = lastIdentifier;
+      document.querySelector('#formRegister [name="name"]').focus();
+    });
+
     function showError(code, minutes) {
       var key = "login.error." + code;
       errEl.hidden = false;
+      // Gagal masuk di tab Masuk: tawarkan daftar (pesan tetap seragam, tidak membocorkan akun mana yang ada)
+      goRegister.hidden = !(code === "invalid_credentials" && !document.querySelector('[data-panel="login"]').hidden);
       var text = tr(key);
       if (text === key) text = tr("login.error.failed");
       if (minutes) {
@@ -165,11 +182,13 @@
       form.addEventListener("submit", function (e) {
         e.preventDefault();
         errEl.hidden = true;
+        goRegister.hidden = true;
         var data = {};
         new FormData(form).forEach(function (v, k) { data[k] = v; });
         var bad = validate(data);
         if (bad) { showError(bad); return; }
         data.next = nextUrl;
+        lastIdentifier = (data.identifier || "").trim();
         var btn = form.querySelector(".login-submit");
         var label = btn.textContent;
         btn.disabled = true;
