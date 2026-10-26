@@ -32,6 +32,16 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE files ADD COLUMN IF NOT EXISTS source_key TEXT",
     "CREATE INDEX IF NOT EXISTS idx_files_session_hash ON files(session_id, content_hash)",
     "CREATE INDEX IF NOT EXISTS idx_files_session_srckey ON files(session_id, source_key)",
+    """CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            google_sub TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            name TEXT,
+            picture TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+    "CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email))",
 )
 _schema_ready = False
 
@@ -111,8 +121,68 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_chat_file ON chat_messages(file_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_files_session_hash ON files(session_id, content_hash);
         CREATE INDEX IF NOT EXISTS idx_files_session_srckey ON files(session_id, source_key);
+
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            google_sub TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            name TEXT,
+            picture TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email));
         """
     )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+# ---------- Users (login Google) ----------
+
+def upsert_user(google_sub, email, name, picture):
+    """Buat akun baru (daftar) atau perbarui profil akun yang sudah ada (masuk).
+    Identitas dikunci ke `sub` Google, bukan email, karena email bisa berubah."""
+    import uuid as _uuid
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        INSERT INTO users (id, google_sub, email, name, picture)
+        VALUES (%s,%s,%s,%s,%s)
+        ON CONFLICT (google_sub) DO UPDATE
+           SET email=EXCLUDED.email, name=EXCLUDED.name, picture=EXCLUDED.picture,
+               last_login_at=now()
+        RETURNING id, email, name, picture, (xmax = 0) AS is_new
+        """,
+        (str(_uuid.uuid4()), google_sub, email, name, picture),
+    )
+    row = dict(cur.fetchone())
+    conn.commit()
+    cur.close()
+    conn.close()
+    return row
+
+
+def get_user(user_id):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id, email, name, picture FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def adopt_session(old_session_id, new_session_id):
+    """Pindahkan file & riwayat chat milik sesi tamu ke akun yang baru login."""
+    if not old_session_id or old_session_id == new_session_id:
+        return
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("UPDATE files SET session_id=%s WHERE session_id=%s", (new_session_id, old_session_id))
+    cur.execute("UPDATE chat_messages SET session_id=%s WHERE session_id=%s", (new_session_id, old_session_id))
     conn.commit()
     cur.close()
     conn.close()
