@@ -680,3 +680,33 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
   .login-card { padding: 24px 18px 20px; }
   .login-form-grid { grid-template-columns: 1fr; gap: 14px; }
 }
+
+/* ---------- Notifikasi (toast) & tautan daftar ---------- */
+
+.toast {
+  position: fixed; top: 76px; left: 50%; z-index: 9000;
+  display: flex; align-items: center; gap: 10px; max-width: min(460px, calc(100vw - 28px));
+  padding: 12px 14px 12px 12px; box-sizing: border-box;
+  background: var(--panel-raised); color: var(--text);
+  border: 1px solid #2fbf71; border-left-width: 4px; border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  font-size: 14px; line-height: 1.4;
+  transform: translate(-50%, 0);
+  animation: toastIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), toastOut 0.4s ease 5.2s forwards;
+}
+.toast-icon {
+  flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: #2fbf71; color: #08140d; font-weight: 700; font-size: 14px;
+}
+.toast-text { flex: 1; }
+.toast-close { flex: none; border: 0; background: transparent; color: var(--text-muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
+.toast-close:hover { color: var(--text); }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+@keyframes toastOut { to { opacity: 0; transform: translate(-50%, -10px); visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .toast { animation: toastOut 0.01s ease 6s forwards; } }
+
+.login-error-link {
+  display: block; margin: -8px auto 16px; padding: 4px 8px; border: 0; background: none;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline;
+}
+.login-error-link[hidden] { display: none; }
