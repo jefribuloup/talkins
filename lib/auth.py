@@ -17,10 +17,11 @@ Environment variable:
   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   (wajib, dari Google Cloud Console)
   APP_BASE_URL       (opsional, mis. https://talkins.vercel.app; dasar redirect URI)
   GOOGLE_REDIRECT_URI(opsional, menimpa APP_BASE_URL + /auth/google/callback)
-  REQUIRE_LOGIN=1    (opsional, wajib login untuk memakai aplikasi; default mati)
+  REQUIRE_LOGIN=0    (opsional, mematikan wajib login; default AKTIF: semua halaman kecuali beranda & /login butuh login)
 """
 import os
 import re
+from datetime import datetime, timezone
 import secrets
 import uuid
 from urllib.parse import urlencode, urlparse
@@ -57,7 +58,8 @@ def _client_secret():
 
 
 def _require_login():
-    return os.environ.get("REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes")
+    """Wajib login secara bawaan. Matikan dengan REQUIRE_LOGIN=0 (tamu boleh memakai aplikasi)."""
+    return os.environ.get("REQUIRE_LOGIN", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 def _redirect_uri():
@@ -139,7 +141,11 @@ def register_routes(app):
 
     @app.context_processor
     def inject_user():
-        return {"current_user": current_user(), "require_login": _require_login()}
+        return {
+            "current_user": current_user(),
+            "require_login": _require_login(),
+            "current_year": datetime.now(timezone.utc).year,
+        }
 
     @app.before_request
     def gate():
