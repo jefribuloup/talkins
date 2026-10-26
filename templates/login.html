@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Masuk / Daftar — Meja Data</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+
+{% include "partials/navbar.html" %}
+
+<main class="login-wrap">
+  <section class="login-card">
+    <div class="login-tabs" role="tablist">
+      <button type="button" class="login-tab active" data-mode="login" role="tab" data-i18n="login.tab.login">Masuk</button>
+      <button type="button" class="login-tab" data-mode="register" role="tab" data-i18n="login.tab.register">Daftar</button>
+    </div>
+
+    <div class="login-panel" data-panel="login">
+      <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
+      <p class="login-sub" data-i18n="login.sub.login">Masuk untuk membuka kembali file dan riwayat chat-mu dari perangkat mana saja.</p>
+    </div>
+    <div class="login-panel" data-panel="register" hidden>
+      <h1 data-i18n="login.heading.register">Buat akun gratis</h1>
+      <p class="login-sub" data-i18n="login.sub.register">Daftar dalam satu klik dengan akun Google. Tanpa kata sandi baru yang perlu diingat.</p>
+    </div>
+
+    <p class="login-error" id="loginError" role="alert" hidden></p>
+
+    <a class="btn-google" id="googleBtn" href="/auth/google?next={{ next_url|urlencode }}" data-no-router>
+      <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+        <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/>
+        <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/>
+        <path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/>
+        <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/>
+      </svg>
+      <span id="googleLabel" data-i18n="login.google.login">Masuk dengan Google</span>
+    </a>
+
+    <p class="login-note" data-i18n="login.note">File yang kamu unggah sebelum masuk otomatis dipindahkan ke akunmu.</p>
+
+    {% if not require_login %}
+    <a class="login-guest" href="/dashboard" data-i18n="login.guest">Lanjut tanpa masuk</a>
+    {% endif %}
+  </section>
+</main>
+
+{% include "partials/footer.html" %}
+
+<script src="/static/js/preloader.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/router.js"></script>
+<script>
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var tabs = document.querySelectorAll(".login-tab");
+    var panels = document.querySelectorAll(".login-panel");
+    var label = document.getElementById("googleLabel");
+    var errEl = document.getElementById("loginError");
+
+    function setMode(mode) {
+      tabs.forEach(function (t) {
+        var on = t.getAttribute("data-mode") === mode;
+        t.classList.toggle("active", on);
+        t.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      panels.forEach(function (p) { p.hidden = p.getAttribute("data-panel") !== mode; });
+      label.setAttribute("data-i18n", "login.google." + mode);
+      if (window.MejaDataI18n) window.MejaDataI18n.apply(window.MejaDataI18n.getLang());
+    }
+
+    tabs.forEach(function (t) {
+      t.addEventListener("click", function () { setMode(t.getAttribute("data-mode")); });
+    });
+
+    var code = params.get("error");
+    if (code) {
+      errEl.hidden = false;
+      errEl.setAttribute("data-i18n", "login.error." + code);
+      errEl.textContent = "Login gagal. Coba lagi.";
+    }
+    setMode(params.get("mode") === "register" ? "register" : "login");
+  })();
+</script>
+</body>
+</html>
