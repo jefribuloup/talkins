@@ -647,9 +647,7 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 
 .login-form-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
 .login-form-grid > * { min-width: 0; }              /* cegah input meluap dari kolom */
-.login-form-grid .field-span,
-.login-form-grid .login-submit { grid-column: 1 / -1; }
-.login-form-grid { align-items: start; }
+.login-form-grid { align-items: start; }   /* kolom tidak dipaksa sejajar: tiap field setinggi isinya */
 
 /* Tombol Google & pembatas tetap proporsional di kartu yang lebar */
 .login-card.is-register .login-divider,
@@ -660,12 +658,14 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 @media (min-width: 1024px) {
   .login-card.is-register { max-width: 780px; padding: 36px 44px 28px; }
   .login-form-grid { grid-template-columns: 1fr 1fr; gap: 18px 26px; }
+  .login-form-grid .login-submit { align-self: end; height: 42px; margin-top: 0; }  /* sejajar dengan input terakhir */
 }
 
 /* Tablet (640px - 1023px): kartu sedang, tetap 2 kolom */
 @media (min-width: 640px) and (max-width: 1023.98px) {
   .login-card.is-register { max-width: 620px; padding: 30px 28px 24px; }
   .login-form-grid { grid-template-columns: 1fr 1fr; gap: 16px 18px; }
+  .login-form-grid .login-submit { align-self: end; height: 42px; margin-top: 0; }
 }
 
 /* Mobile (< 640px): 1 kolom, kartu hampir selebar layar */
