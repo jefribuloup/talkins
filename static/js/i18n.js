@@ -1,37 +1,420 @@
-<header class="navbar">
-  <a href="/" class="brand">
-    <span class="brand-mark">▦</span>
-    <span class="brand-name">Meja Data</span>
-  </a>
+(function () {
+  const STORAGE_KEY = "meja-data-lang";
 
-  <nav class="navbar-nav">
-    <a href="/" data-i18n="nav.home">Beranda</a>
-    <a href="/dashboard" data-i18n="nav.dashboard">Dashboard</a>
-  </nav>
+  const DICT = {
+    id: {
+      "nav.home": "Beranda",
+      "nav.dashboard": "Dashboard",
+      "nav.login": "Masuk",
+      "nav.register": "Daftar",
+      "nav.logout": "Keluar",
+      "login.tab.login": "Masuk",
+      "login.tab.register": "Daftar",
+      "login.heading.login": "Selamat datang kembali",
+      "login.heading.register": "Buat akun gratis",
+      "login.sub.login": "Masuk untuk membuka kembali file dan riwayat chat-mu dari perangkat mana saja.",
+      "login.sub.register": "Daftar dalam satu klik dengan akun Google. Tanpa kata sandi baru yang perlu diingat.",
+      "login.google.login": "Masuk dengan Google",
+      "login.google.register": "Daftar dengan Google",
+      "login.note": "File yang kamu unggah sebelum masuk otomatis dipindahkan ke akunmu.",
+      "login.guest": "Lanjut tanpa masuk",
+      "login.error.not_configured": "Login Google belum dikonfigurasi di server. Hubungi admin.",
+      "login.error.access_denied": "Izin Google dibatalkan. Coba lagi bila ingin masuk.",
+      "login.error.state": "Sesi login kedaluwarsa atau tidak valid. Silakan coba lagi.",
+      "login.error.email_unverified": "Email akun Google ini belum terverifikasi.",
+      "login.error.failed": "Login gagal. Silakan coba lagi sebentar lagi.",
+      "footer.tagline": "Ngobrol dengan file Excel-mu, tanpa menyentuh file aslinya.",
+      "footer.stack": "Flask · Neon Postgres · Gemini Flash / Groq",
 
-  <div class="navbar-tools">
-    {% if current_user %}
-    <div class="user-chip" title="{{ current_user.email }}">
-      {% if current_user.picture %}
-      <img class="user-avatar" src="{{ current_user.picture }}" alt="" referrerpolicy="no-referrer" width="28" height="28">
-      {% else %}
-      <span class="user-avatar user-avatar-fallback">{{ (current_user.name or current_user.email)[:1]|upper }}</span>
-      {% endif %}
-      <span class="user-name">{{ current_user.name or current_user.email }}</span>
-      <form method="post" action="/auth/logout" class="user-logout">
-        <button type="submit" class="btn nav-login" data-i18n="nav.logout">Keluar</button>
-      </form>
-    </div>
-    {% else %}
-    <a class="btn nav-login" href="/login" data-i18n="nav.login">Masuk</a>
-    <a class="btn btn-primary nav-login nav-register" href="/login?mode=register" data-i18n="nav.register">Daftar</a>
-    {% endif %}
-    <button class="toggle-btn" id="langToggle" type="button" aria-label="Ganti bahasa">
-      <span class="lang-current" id="langCurrent">ID</span>
-    </button>
-    <button class="toggle-btn" id="themeToggle" type="button" aria-label="Ganti tema">
-      <span class="theme-icon" id="themeIcon">☾</span>
-    </button>
-  </div>
-  <div class="nav-progress" id="navProgress" aria-hidden="true"><span></span></div>
-</header>
+      "index.hero.title": "Ajak ngobrol<br>file Excel-mu.",
+      "index.hero.lede": "Upload satu atau banyak sheet, biar sistem yang rapikan datanya duluan. Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide — file asli di komputermu tidak pernah tersentuh sama sekali.",
+      "index.hero.cta": "Buka Dashboard",
+      "index.section.howitworks": "Cara kerja",
+      "index.feature1.label": "Sheet apa saja",
+      "index.feature1.text": "Single sheet atau puluhan sheet sekaligus. Semua baris dan kolom ditampilkan apa adanya seperti di Excel, tanpa ada yang dijadikan header.",
+      "index.feature2.label": "Salinan kerja, bukan file kamu",
+      "index.feature2.text": "Setiap upload dibuatkan salinan di cloud. Yang kamu edit, filter, atau bersihkan adalah salinan itu — file lokalmu tetap seperti semula.",
+      "index.feature3.label": "Ngobrol bebas",
+      "index.feature3.text": "Tanya pola, minta ringkasan, minta diubah jadi outline slide — bukan sekadar preview tabel statis.",
+
+      "dashboard.title": "Ruang unggah",
+      "dashboard.sub": "Setiap file yang kamu unggah dibuatkan salinan kerja di cloud.",
+      "dashboard.dropzone.title": "Tarik file .xlsx ke sini",
+      "dashboard.dropzone.sub": "atau klik untuk memilih dari komputer",
+      "dashboard.filelist.title": "File kamu di sesi ini",
+      "dashboard.filelist.empty": "Belum ada file. Upload di atas untuk mulai.",
+      "dashboard.filelist.open": "Buka",
+      "dashboard.filelist.delete": "Hapus",
+      "dashboard.status.processing": "Memproses {name} ...",
+      "common.loading": "Memuat data...",
+      "dashboard.status.success": "Berhasil: {count} sheet terbaca. Membuka ruang kerja...",
+      "dashboard.filelist.meta": "{count} sheet · diunggah {date}",
+
+      "workspace.btnUpload": "+ Unggah file",
+      "workspace.upload.title": "Unggah file Excel",
+      "workspace.upload.historyTitle": "File yang pernah diunggah",
+      "workspace.upload.current": "Sedang dibuka",
+      "workspace.upload.tabFile": "File",
+      "workspace.upload.tabLink": "Link spreadsheet",
+      "workspace.upload.linkPlaceholder": "Tempel link Google Sheets (publik) atau URL file .xlsx...",
+      "workspace.upload.linkSubmit": "Proses link",
+      "workspace.upload.linkProcessing": "Memproses link...",
+      "workspace.upload.dupTitle": "File ini sudah diunggah",
+      "workspace.upload.dupMessage": "Sudah diunggah pada {date}. Buka file yang sudah ada?",
+      "workspace.upload.dupMessageCurrent": "File ini sedang dibuka (diunggah {date}). Tutup popup dan lanjut di file ini?",
+      "workspace.upload.dupOpen": "Ya, buka",
+      "workspace.upload.dupCancel": "Tidak",
+      "workspace.upload.delTitle": "Yakin hapus file ini?",
+      "workspace.upload.delMessage": "File akan dihapus permanen beserta riwayat chat-nya.",
+      "workspace.upload.delMessageCurrent": "File ini sedang dibuka. Jika dihapus, kamu akan dialihkan ke file lain atau ruang unggah.",
+      "workspace.upload.delConfirm": "Ya, hapus",
+      "workspace.upload.delCancel": "Batal",
+      "workspace.btnReset": "Reset ke asli",
+      "workspace.btnSlides": "Jadikan slide",
+      "workspace.btnDownload": "Unduh salinan",
+      "workspace.toolbar.placeholder": "Pilih aksi...",
+      "workspace.toolbar.dropna": "Buang baris kosong",
+      "workspace.toolbar.dedupe": "Buang duplikat",
+      "workspace.toolbar.sort": "Urutkan kolom",
+      "workspace.toolbar.filter": "Filter baris",
+      "workspace.toolbar.castnumeric": "Ubah ke angka",
+      "workspace.toolbar.dropcolumn": "Hapus kolom",
+      "workspace.toolbar.apply": "Terapkan",
+      "workspace.chat.placeholder": "Tanya soal datamu...",
+      "workspace.chat.send": "Kirim",
+      "workspace.tabs.chat": "Chat",
+      "workspace.tabs.formula": "Rumus",
+      "workspace.tabs.recap": "Rekap",
+      "workspace.recap.loading": "Menganalisa data…",
+      "workspace.recap.error": "Rekap gagal dimuat",
+      "workspace.recap.refresh": "Perbarui rekap",
+      "workspace.recap.show": "Lihat sel",
+      "workspace.recap.score": "Kesehatan data",
+      "workspace.recap.filled": "terisi",
+      "workspace.recap.empty": "kosong",
+      "workspace.recap.conclusion": "Kesimpulan",
+      "workspace.recap.findings": "Temuan",
+      "workspace.recap.fill": "Kelengkapan per kolom",
+      "workspace.recap.numeric": "Statistik kolom angka",
+      "workspace.recap.categories": "Komposisi kategori",
+      "workspace.recap.dates": "Rentang tanggal",
+      "workspace.recap.median": "Median",
+      "workspace.recap.outliers": "Pencilan",
+      "workspace.recap.sev.high": "Tinggi",
+      "workspace.recap.sev.medium": "Sedang",
+      "workspace.recap.sev.low": "Rendah",
+      "workspace.recap.sev.info": "Info",
+      "workspace.recap.sev.ok": "Aman",
+      "workspace.recap.dataset": "Jenis data terdeteksi",
+      "workspace.recap.conf.high": "yakin",
+      "workspace.recap.conf.medium": "cukup yakin",
+      "workspace.recap.conf.low": "perkiraan",
+      "workspace.recap.click": "Klik bagian grafik untuk menyorot selnya di tabel.",
+      "workspace.recap.type.column": "Kolom",
+      "workspace.recap.type.bar": "Batang",
+      "workspace.recap.type.pie": "Pie",
+      "workspace.recap.hist": "Sebaran angka",
+      "workspace.recap.trend.month": "Tren per bulan",
+      "workspace.recap.trend.day": "Tren per hari",
+      "workspace.recap.pivot": "Tabel ringkasan",
+      "workspace.recap.pivot.count": "Jumlah baris",
+      "workspace.recap.pivot.sum": "Jumlah",
+      "workspace.recap.pivot.avg": "Rata-rata",
+      "workspace.recap.pivot.others": "Lainnya",
+      "workspace.recap.pivot.total": "Total",
+      "workspace.formula.empty": "Klik sel di tabel untuk melihat rumus dan alur datanya di sini. Shift+klik untuk rentang, Ctrl/Cmd+klik untuk beberapa sel, klik huruf kolom atau nomor baris untuk memilih satu kolom/baris penuh.",
+      "workspace.formula.selected": "{n} sel dipilih · {f} rumus",
+      "workspace.formula.noneInSheet": "Tidak ada rumus terdeteksi di sheet ini. Rumus hanya terbaca dari file .xlsx/.xlsm (format .xls lama tidak menyimpannya).",
+      "workspace.formula.badgeFormula": "Rumus",
+      "workspace.formula.badgeStatic": "Nilai statis",
+      "workspace.formula.badgePlain": "Data biasa",
+      "workspace.formula.badgeUnknown": "Tidak pasti",
+      "workspace.formula.result": "Hasil",
+      "workspace.formula.value": "Nilai",
+      "workspace.formula.deps": "Bahan rumus (klik untuk tandai di tabel)",
+      "workspace.formula.depsRow": "baris {r}",
+      "workspace.formula.depsRows": "baris {a}–{b}",
+      "workspace.formula.depsOutside": "di luar area data",
+      "workspace.formula.otherSheet": "Rumus ini juga merujuk sheet lain.",
+      "workspace.formula.staticNote": "Kolom {col} umumnya berisi rumus, tapi sel ini nilai manual/statis.",
+      "workspace.formula.dirtyNote": "Data sheet ini sudah diurutkan/difilter, jadi posisi baris berubah dan rumus per-sel tidak bisa dipastikan. Kolom {col} aslinya {pct}% berisi rumus (mis. {sample}). Gunakan Reset untuk kembali ke data asli.",
+      "workspace.formula.more": "+{n} sel lain tidak ditampilkan — pilih rentang yang lebih kecil.",
+      "workspace.formula.dirtyFlag": "data sudah dimanipulasi",
+      "workspace.suggest.title": "Saran rumus",
+      "workspace.suggest.loading": "Menghitung saran rumus…",
+      "workspace.suggest.copy": "Salin",
+      "workspace.suggest.copied": "Tersalin",
+      "workspace.suggest.sep": "Pemisah argumen",
+      "workspace.suggest.preview": "Contoh hasil, {n} baris pertama",
+      "workspace.grid.info": "Data: {rows} baris × {cols} kolom · scroll untuk melihat baris/kolom kosong",
+      "workspace.suggest.dirty": "Data sudah diurutkan/difilter, jadi alamat sel mengikuti nomor baris yang tampil di tabel.",
+      "workspace.suggest.notRect": "Saran rumus muncul untuk satu blok persegi panjang. Pilih dengan klik + Shift+klik, atau klik huruf kolom / nomor baris (tanpa Ctrl+klik).",
+      "workspace.suggest.gap": "Kolom yang dipilih tidak berurutan di sheet asli, jadi alamat rumus tidak bisa dibuat dengan benar. Pilih kolom yang bersebelahan.",
+      "workspace.suggest.error": "Saran rumus gagal dimuat",
+      "workspace.suggest.tooBig": "Pilihan terlalu besar untuk saran rumus (maksimal 20.000 sel). Pilih area yang lebih kecil.",
+      "workspace.stats.average": "Rata-rata",
+      "workspace.stats.count": "Hitung",
+      "workspace.stats.numCount": "Hitung angka",
+      "workspace.stats.min": "Min",
+      "workspace.stats.max": "Maks",
+      "workspace.stats.sum": "Jumlah",
+      "workspace.stats.fullNote": "Pilihan yang belum seluruhnya dimuat di layar dihitung langsung dari seluruh data ({n} baris) di server.",
+      "workspace.stats.loading": "Menghitung dari seluruh data…",
+      "workspace.stats.error": "Gagal menghitung dari seluruh data, jadi yang ditampilkan hanya sel yang sudah dimuat.",
+      "workspace.chat.thinking": "Berpikir...",
+      "workspace.chat.sheetsUsed": "Sheet dianalisis: {sheets}",
+      "workspace.chat.errorPrefix": "Gagal",
+      "workspace.chat.errorAnswer": "Gagal mendapat jawaban",
+      "workspace.pager.info": "Hal {page} / {total} · {rows} baris",
+      "workspace.chat.intro": "Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.",
+      "workspace.pager.prev": "‹ Sebelumnya",
+      "workspace.pager.next": "Selanjutnya ›",
+      "workspace.slide.title": "Buat slide dari data ini",
+      "workspace.slide.topicPlaceholder": "Topik slide, mis. 'Ringkasan penjualan Q3'",
+      "workspace.slide.generate": "Buat slide",
+      "workspace.slide.desc": "Slide disusun otomatis dari data (judul, angka kunci, grafik, tabel ringkasan, kualitas data) dan bisa diunduh sebagai PowerPoint.",
+      "workspace.slide.building": "Menyusun slide dari data…",
+      "workspace.slide.present": "Presentasi",
+      "workspace.slide.export": "Unduh PPTX",
+      "workspace.slide.exporting": "Menyiapkan file…",
+      "workspace.slide.edit": "Klik teks di slide untuk mengedit",
+      "workspace.slide.ai.working": "AI sedang memoles teks…",
+      "workspace.slide.ai.done": "Teks dipoles AI ✓",
+      "workspace.slide.ai.fail": "Memakai teks bawaan",
+      "workspace.slide.close": "Tutup",
+    },
+    en: {
+      "nav.home": "Home",
+      "nav.dashboard": "Dashboard",
+      "nav.login": "Sign in",
+      "nav.register": "Sign up",
+      "nav.logout": "Sign out",
+      "login.tab.login": "Sign in",
+      "login.tab.register": "Sign up",
+      "login.heading.login": "Welcome back",
+      "login.heading.register": "Create a free account",
+      "login.sub.login": "Sign in to reopen your files and chat history from any device.",
+      "login.sub.register": "Sign up in one click with your Google account. No new password to remember.",
+      "login.google.login": "Sign in with Google",
+      "login.google.register": "Sign up with Google",
+      "login.note": "Files you uploaded before signing in are moved to your account automatically.",
+      "login.guest": "Continue without signing in",
+      "login.error.not_configured": "Google sign-in is not configured on the server. Please contact the admin.",
+      "login.error.access_denied": "Google permission was cancelled. Try again if you want to sign in.",
+      "login.error.state": "Your sign-in session expired or is invalid. Please try again.",
+      "login.error.email_unverified": "This Google account's email is not verified.",
+      "login.error.failed": "Sign-in failed. Please try again in a moment.",
+      "footer.tagline": "Chat with your Excel files, without ever touching the originals.",
+      "footer.stack": "Flask · Neon Postgres · Gemini Flash / Groq",
+
+      "index.hero.title": "Chat with<br>your Excel files.",
+      "index.hero.lede": "Upload one sheet or dozens, and the system tidies the data first. Ask anything about it, tweak the numbers, turn results into slides — the file on your computer is never touched.",
+      "index.hero.cta": "Open Dashboard",
+      "index.section.howitworks": "How it works",
+      "index.feature1.label": "Any sheet layout",
+      "index.feature1.text": "One sheet or dozens at once. Every row and column is shown exactly as in Excel, with nothing treated as a header.",
+      "index.feature2.label": "A working copy, not your file",
+      "index.feature2.text": "Every upload gets a cloud copy. Whatever you edit, filter, or clean is that copy — your local file stays exactly as it was.",
+      "index.feature3.label": "Chat freely",
+      "index.feature3.text": "Ask about patterns, request summaries, turn it into a slide outline — not just a static table preview.",
+
+      "dashboard.title": "Upload space",
+      "dashboard.sub": "Every file you upload gets a working copy in the cloud.",
+      "dashboard.dropzone.title": "Drag an .xlsx file here",
+      "dashboard.dropzone.sub": "or click to choose one from your computer",
+      "dashboard.filelist.title": "Your files this session",
+      "dashboard.filelist.empty": "No files yet. Upload one above to get started.",
+      "dashboard.filelist.open": "Open",
+      "dashboard.filelist.delete": "Delete",
+      "dashboard.status.processing": "Processing {name} ...",
+      "common.loading": "Loading data...",
+      "dashboard.status.success": "Success: {count} sheet(s) read. Opening workspace...",
+      "dashboard.filelist.meta": "{count} sheet(s) · uploaded {date}",
+
+      "workspace.btnUpload": "+ Upload file",
+      "workspace.upload.title": "Upload an Excel file",
+      "workspace.upload.historyTitle": "Previously uploaded files",
+      "workspace.upload.current": "Currently open",
+      "workspace.upload.tabFile": "File",
+      "workspace.upload.tabLink": "Spreadsheet link",
+      "workspace.upload.linkPlaceholder": "Paste a public Google Sheets link or a .xlsx file URL...",
+      "workspace.upload.linkSubmit": "Process link",
+      "workspace.upload.linkProcessing": "Processing link...",
+      "workspace.upload.dupTitle": "This file was already uploaded",
+      "workspace.upload.dupMessage": "Uploaded on {date}. Open the existing file?",
+      "workspace.upload.dupMessageCurrent": "This file is open right now (uploaded {date}). Close the popup and keep working on it?",
+      "workspace.upload.dupOpen": "Yes, open",
+      "workspace.upload.dupCancel": "No",
+      "workspace.upload.delTitle": "Delete this file?",
+      "workspace.upload.delMessage": "The file will be permanently deleted along with its chat history.",
+      "workspace.upload.delMessageCurrent": "This file is open right now. If deleted, you will be taken to another file or the upload space.",
+      "workspace.upload.delConfirm": "Yes, delete",
+      "workspace.upload.delCancel": "Cancel",
+      "workspace.btnReset": "Reset to original",
+      "workspace.btnSlides": "Turn into slides",
+      "workspace.btnDownload": "Download copy",
+      "workspace.toolbar.placeholder": "Choose an action...",
+      "workspace.toolbar.dropna": "Drop empty rows",
+      "workspace.toolbar.dedupe": "Drop duplicates",
+      "workspace.toolbar.sort": "Sort by column",
+      "workspace.toolbar.filter": "Filter rows",
+      "workspace.toolbar.castnumeric": "Convert to numbers",
+      "workspace.toolbar.dropcolumn": "Drop column",
+      "workspace.toolbar.apply": "Apply",
+      "workspace.chat.placeholder": "Ask about your data...",
+      "workspace.chat.send": "Send",
+      "workspace.tabs.chat": "Chat",
+      "workspace.tabs.formula": "Formulas",
+      "workspace.tabs.recap": "Recap",
+      "workspace.recap.loading": "Analysing data…",
+      "workspace.recap.error": "Couldn't load recap",
+      "workspace.recap.refresh": "Refresh recap",
+      "workspace.recap.show": "Show cells",
+      "workspace.recap.score": "Data health",
+      "workspace.recap.filled": "filled",
+      "workspace.recap.empty": "empty",
+      "workspace.recap.conclusion": "Conclusion",
+      "workspace.recap.findings": "Findings",
+      "workspace.recap.fill": "Completeness per column",
+      "workspace.recap.numeric": "Numeric column statistics",
+      "workspace.recap.categories": "Category breakdown",
+      "workspace.recap.dates": "Date range",
+      "workspace.recap.median": "Median",
+      "workspace.recap.outliers": "Outliers",
+      "workspace.recap.sev.high": "High",
+      "workspace.recap.sev.medium": "Medium",
+      "workspace.recap.sev.low": "Low",
+      "workspace.recap.sev.info": "Info",
+      "workspace.recap.sev.ok": "OK",
+      "workspace.recap.dataset": "Detected data type",
+      "workspace.recap.conf.high": "confident",
+      "workspace.recap.conf.medium": "fairly sure",
+      "workspace.recap.conf.low": "estimate",
+      "workspace.recap.click": "Click part of a chart to highlight its cells in the table.",
+      "workspace.recap.type.column": "Column",
+      "workspace.recap.type.bar": "Bar",
+      "workspace.recap.type.pie": "Pie",
+      "workspace.recap.hist": "Value distribution",
+      "workspace.recap.trend.month": "Trend by month",
+      "workspace.recap.trend.day": "Trend by day",
+      "workspace.recap.pivot": "Summary table",
+      "workspace.recap.pivot.count": "Row count",
+      "workspace.recap.pivot.sum": "Sum",
+      "workspace.recap.pivot.avg": "Average",
+      "workspace.recap.pivot.others": "Others",
+      "workspace.recap.pivot.total": "Total",
+      "workspace.formula.empty": "Click a cell in the table to see its formula and data flow here. Shift+click for a range, Ctrl/Cmd+click for multiple cells, click a column title or row number to select a whole column/row.",
+      "workspace.formula.selected": "{n} cells selected · {f} formulas",
+      "workspace.formula.noneInSheet": "No formulas detected in this sheet. Formulas are only readable from .xlsx/.xlsm files (legacy .xls does not store them).",
+      "workspace.formula.badgeFormula": "Formula",
+      "workspace.formula.badgeStatic": "Static value",
+      "workspace.formula.badgePlain": "Plain data",
+      "workspace.formula.badgeUnknown": "Uncertain",
+      "workspace.formula.result": "Result",
+      "workspace.formula.value": "Value",
+      "workspace.formula.deps": "Formula inputs (click to mark in table)",
+      "workspace.formula.depsRow": "row {r}",
+      "workspace.formula.depsRows": "rows {a}–{b}",
+      "workspace.formula.depsOutside": "outside the data area",
+      "workspace.formula.otherSheet": "This formula also references another sheet.",
+      "workspace.formula.staticNote": "Column {col} mostly contains formulas, but this cell is a manual/static value.",
+      "workspace.formula.dirtyNote": "This sheet was sorted/filtered, so row positions changed and per-cell formulas can't be confirmed. Column {col} originally had {pct}% formulas (e.g. {sample}). Use Reset to return to the original data.",
+      "workspace.formula.more": "+{n} more cells not shown — select a smaller range.",
+      "workspace.formula.dirtyFlag": "data was manipulated",
+      "workspace.suggest.title": "Formula suggestions",
+      "workspace.suggest.loading": "Working out formula suggestions…",
+      "workspace.suggest.copy": "Copy",
+      "workspace.suggest.copied": "Copied",
+      "workspace.suggest.sep": "Argument separator",
+      "workspace.suggest.preview": "Sample output, first {n} rows",
+      "workspace.grid.info": "Data: {rows} rows × {cols} columns · scroll to see empty rows/columns",
+      "workspace.suggest.dirty": "Data was sorted/filtered, so cell addresses follow the row numbers shown in the table.",
+      "workspace.suggest.notRect": "Formula suggestions work for a single rectangular block. Select with click + Shift+click, or click a column letter / row number (no Ctrl+click).",
+      "workspace.suggest.gap": "The selected columns aren't adjacent in the original sheet, so formula addresses can't be built correctly. Select neighbouring columns.",
+      "workspace.suggest.error": "Couldn't load formula suggestions",
+      "workspace.suggest.tooBig": "Selection is too large for formula suggestions (max 20,000 cells). Select a smaller area.",
+      "workspace.stats.average": "Average",
+      "workspace.stats.count": "Count",
+      "workspace.stats.numCount": "Numerical count",
+      "workspace.stats.min": "Min",
+      "workspace.stats.max": "Max",
+      "workspace.stats.sum": "Sum",
+      "workspace.stats.fullNote": "Selections not fully loaded on screen are calculated from the full data ({n} rows) on the server.",
+      "workspace.stats.loading": "Calculating from the full data…",
+      "workspace.stats.error": "Couldn't calculate from the full data, so only the cells already loaded are shown.",
+      "workspace.chat.thinking": "Thinking...",
+      "workspace.chat.sheetsUsed": "Sheets analyzed: {sheets}",
+      "workspace.chat.errorPrefix": "Failed",
+      "workspace.chat.errorAnswer": "Failed to get an answer",
+      "workspace.pager.info": "Page {page} / {total} · {rows} rows",
+      "workspace.chat.intro": "Hi — ask anything about the data you uploaded: patterns, summaries, or ask to turn it into another format.",
+      "workspace.pager.prev": "‹ Previous",
+      "workspace.pager.next": "Next ›",
+      "workspace.slide.title": "Create slides from this data",
+      "workspace.slide.topicPlaceholder": "Slide topic, e.g. 'Q3 sales summary'",
+      "workspace.slide.generate": "Create slides",
+      "workspace.slide.desc": "Slides are built automatically from your data (title, key numbers, charts, summary table, data quality) and can be downloaded as PowerPoint.",
+      "workspace.slide.building": "Building slides from the data…",
+      "workspace.slide.present": "Present",
+      "workspace.slide.export": "Download PPTX",
+      "workspace.slide.exporting": "Preparing file…",
+      "workspace.slide.edit": "Click text on a slide to edit it",
+      "workspace.slide.ai.working": "AI is polishing the text…",
+      "workspace.slide.ai.done": "Text polished by AI ✓",
+      "workspace.slide.ai.fail": "Using default text",
+      "workspace.slide.close": "Close",
+    },
+  };
+
+  function applyLang(lang) {
+    const dict = DICT[lang] || DICT.id;
+
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const key = el.getAttribute("data-i18n");
+      if (!(key in dict)) return;
+      if (el.hasAttribute("data-i18n-html")) {
+        el.innerHTML = dict[key];
+      } else {
+        el.textContent = dict[key];
+      }
+    });
+
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-placeholder");
+      if (key in dict) el.setAttribute("placeholder", dict[key]);
+    });
+
+    const langCurrent = document.getElementById("langCurrent");
+    if (langCurrent) langCurrent.textContent = lang.toUpperCase();
+
+    document.documentElement.setAttribute("lang", lang);
+
+    // Beri tahu skrip lain (mis. workspace.js) supaya teks yang dibuat lewat JS ikut diterjemahkan.
+    window.dispatchEvent(new CustomEvent("mejadata:langchange", { detail: { lang } }));
+  }
+
+  window.MejaDataI18n = {
+    dict: DICT,
+    t(key, lang) {
+      const l = lang || localStorage.getItem(STORAGE_KEY) || "id";
+      return (DICT[l] || DICT.id)[key] || key;
+    },
+    apply: applyLang,
+    getLang() {
+      return localStorage.getItem(STORAGE_KEY) || "id";
+    },
+  };
+
+  const saved = localStorage.getItem(STORAGE_KEY) || "id";
+  applyLang(saved);
+
+  const btn = document.getElementById("langToggle");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const current = localStorage.getItem(STORAGE_KEY) || "id";
+      const next = current === "id" ? "en" : "id";
+      localStorage.setItem(STORAGE_KEY, next);
+      applyLang(next);
+    });
+  }
+})();
