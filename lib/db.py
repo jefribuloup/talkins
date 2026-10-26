@@ -49,6 +49,7 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL",
 )
 _schema_ready = False
 
@@ -146,6 +147,7 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL;
         """
     )
     conn.commit()
@@ -189,19 +191,43 @@ def get_user(user_id):
     return dict(row) if row else None
 
 
-def create_manual_user(username, name, password_hash):
-    """Daftar manual (username + kata sandi). Mengembalikan user, atau None jika username sudah dipakai."""
+def find_register_conflict(username, email):
+    """Cek bentrok sebelum daftar manual. Mengembalikan kode error atau None:
+    username_taken  -> username sudah dipakai
+    email_taken     -> email sudah dipakai akun manual lain
+    email_google    -> email itu sudah terdaftar lewat Google (arahkan user ke tombol Google)"""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM users WHERE username=%s", (username,))
+    if cur.fetchone():
+        code = "username_taken"
+    else:
+        cur.execute(
+            "SELECT password_hash IS NOT NULL FROM users WHERE lower(email)=%s "
+            "ORDER BY (password_hash IS NOT NULL) DESC LIMIT 1",
+            (email,),
+        )
+        row = cur.fetchone()
+        code = None if not row else ("email_taken" if row[0] else "email_google")
+    cur.close()
+    conn.close()
+    return code
+
+
+def create_manual_user(username, name, email, password_hash):
+    """Daftar manual (username + email + kata sandi). Mengembalikan user, atau None bila bentrok
+    (mis. dua orang mendaftar bersamaan dengan username/email yang sama)."""
     import uuid as _uuid
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        INSERT INTO users (id, username, name, password_hash)
-        VALUES (%s,%s,%s,%s)
+        INSERT INTO users (id, username, email, name, password_hash)
+        VALUES (%s,%s,%s,%s,%s)
         ON CONFLICT DO NOTHING
         RETURNING id, username, email, name, picture
         """,
-        (str(_uuid.uuid4()), username, name, password_hash),
+        (str(_uuid.uuid4()), username, email, name, password_hash),
     )
     row = cur.fetchone()
     conn.commit()
@@ -210,8 +236,11 @@ def create_manual_user(username, name, password_hash):
     return dict(row) if row else None
 
 
-def get_user_for_login(username):
-    """Data akun untuk verifikasi login manual, termasuk status kunci akun."""
+def get_user_for_login(identifier):
+    """Cari akun manual untuk login berdasarkan username ATAU email (identifier berisi '@' = email).
+    Hanya akun yang punya kata sandi; akun Google murni tidak pernah cocok di sini.
+    Menyertakan status kunci akun."""
+    by_email = "@" in identifier
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
@@ -219,9 +248,9 @@ def get_user_for_login(username):
         SELECT id, username, email, name, picture, password_hash,
                (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
                CEIL(GREATEST(EXTRACT(EPOCH FROM (locked_until - now())), 0) / 60.0)::int AS lock_minutes
-        FROM users WHERE username=%s
-        """,
-        (username,),
+        FROM users
+        WHERE password_hash IS NOT NULL AND """ + ("lower(email)=%s" if by_email else "username=%s"),
+        (identifier,),
     )
     row = cur.fetchone()
     cur.close()
