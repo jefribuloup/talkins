@@ -13,7 +13,7 @@
 {% include "partials/navbar.html" %}
 
 <main class="login-wrap">
-  <section class="login-card">
+  <section class="login-card" id="loginCard" data-next="{{ next_url }}" data-csrf="{{ csrf_token }}">
     <div class="login-tabs" role="tablist">
       <button type="button" class="login-tab active" data-mode="login" role="tab" data-i18n="login.tab.login">Masuk</button>
       <button type="button" class="login-tab" data-mode="register" role="tab" data-i18n="login.tab.register">Daftar</button>
@@ -22,13 +22,53 @@
     <div class="login-panel" data-panel="login">
       <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
       <p class="login-sub" data-i18n="login.sub.login">Masuk untuk membuka kembali file dan riwayat chat-mu dari perangkat mana saja.</p>
-    </div>
+    
+      <form class="login-form" id="formLogin" novalidate>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.username"></span>
+          <input type="text" name="username" autocomplete="username" maxlength="30" autocapitalize="none" spellcheck="false" required>
+          
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.password"></span>
+          <span class="pw-wrap"><input type="password" name="password" autocomplete="current-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          
+        </label>
+        <button type="submit" class="btn btn-primary login-submit" data-i18n="login.submit.login">Masuk</button>
+      </form>
+</div>
     <div class="login-panel" data-panel="register" hidden>
       <h1 data-i18n="login.heading.register">Buat akun gratis</h1>
       <p class="login-sub" data-i18n="login.sub.register">Daftar dalam satu klik dengan akun Google. Tanpa kata sandi baru yang perlu diingat.</p>
-    </div>
+    
+      <form class="login-form" id="formRegister" novalidate>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.name"></span>
+          <input type="text" name="name" autocomplete="name" maxlength="80" required>
+          
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.username"></span>
+          <input type="text" name="username" autocomplete="username" maxlength="30" autocapitalize="none" spellcheck="false" required>
+          <small class="login-hint" data-i18n="login.hint.username"></small>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.password"></span>
+          <span class="pw-wrap"><input type="password" name="password" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          <small class="login-hint" data-i18n="login.hint.password"></small>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.confirm"></span>
+          <span class="pw-wrap"><input type="password" name="confirm" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          
+        </label>
+        <button type="submit" class="btn btn-primary login-submit" data-i18n="login.submit.register">Daftar</button>
+      </form>
+</div>
 
     <p class="login-error" id="loginError" role="alert" hidden></p>
+
+    <div class="login-divider"><span data-i18n="login.or">atau</span></div>
 
     <a class="btn-google" id="googleBtn" href="/auth/google?next={{ next_url|urlencode }}" data-no-router>
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
@@ -83,6 +123,86 @@
       errEl.setAttribute("data-i18n", "login.error." + code);
       errEl.textContent = "Login gagal. Coba lagi.";
     }
+
+    // ---------- Login & daftar manual (username + kata sandi) ----------
+    var card = document.getElementById("loginCard");
+    var nextUrl = card.getAttribute("data-next") || "/dashboard";
+    var csrf = card.getAttribute("data-csrf") || "";
+
+    function tr(key) {
+      return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
+    }
+    function showError(code, minutes) {
+      var key = "login.error." + code;
+      errEl.hidden = false;
+      var text = tr(key);
+      if (text === key) text = tr("login.error.failed");
+      if (minutes) {
+        errEl.removeAttribute("data-i18n");
+        errEl.textContent = text.replace("{minutes}", minutes);
+      } else {
+        errEl.setAttribute("data-i18n", key);
+        errEl.textContent = text;
+      }
+    }
+
+    document.querySelectorAll(".pw-toggle").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var input = btn.parentNode.querySelector("input");
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.setAttribute("data-i18n", show ? "login.pw.hide" : "login.pw.show");
+        btn.textContent = tr(show ? "login.pw.hide" : "login.pw.show");
+      });
+    });
+
+    function bindForm(form, endpoint, validate) {
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        errEl.hidden = true;
+        var data = {};
+        new FormData(form).forEach(function (v, k) { data[k] = v; });
+        var bad = validate(data);
+        if (bad) { showError(bad); return; }
+        data.next = nextUrl;
+        var btn = form.querySelector(".login-submit");
+        var label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = tr("login.submit.loading");
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          credentials: "same-origin",
+          body: JSON.stringify(data),
+        })
+          .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, body: j }; }); })
+          .then(function (r) {
+            if (r.ok && r.body.redirect) {
+              window.location.href = r.body.redirect; // navigasi penuh agar navbar ikut diperbarui
+              return;
+            }
+            showError(r.body.error || "failed", r.body.minutes);
+            btn.disabled = false;
+            btn.textContent = label;
+          })
+          .catch(function () {
+            showError("network");
+            btn.disabled = false;
+            btn.textContent = label;
+          });
+      });
+    }
+
+    bindForm(document.getElementById("formLogin"), "/auth/login", function (d) {
+      if (!d.username.trim() || !d.password) return "invalid_credentials";
+    });
+    bindForm(document.getElementById("formRegister"), "/auth/register", function (d) {
+      if (!d.name.trim()) return "name_required";
+      if (!/^[a-zA-Z0-9_.]{3,30}$/.test(d.username.trim())) return "username_invalid";
+      if (d.password.length < 8) return "password_short";
+      if (d.password !== d.confirm) return "password_mismatch";
+    });
+
     setMode(params.get("mode") === "register" ? "register" : "login");
   })();
 </script>
