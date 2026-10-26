@@ -12,24 +12,50 @@ dipindah ke Next.js kalau skalanya membesar: tiap route Flask di sini punya pada
 
 ## Struktur folder
 
-meja-data/
-  requirements.txt
-  vercel.json
-  env-example.txt       <- contoh isi environment variable (teks biasa, copy-paste ke Vercel)
-  api/
-    index.py            <- entry point Flask (semua routing)
-  lib/
-    db.py               <- koneksi Neon Postgres + schema + migrasi otomatis + query
-    excel_engine.py     <- parsing/cleaning Excel, deteksi rumus, preview, manipulasi, export
-    chat_engine.py      <- chat-with-data (Gemini Flash primary, Groq fallback)
-  templates/
-    index.html          <- landing + upload
-    workspace.html       <- panel data (kiri) + tab Chat | Rumus (kanan)
-  static/
-    css/
-    js/
-      workspace.js      <- tabel, pemilihan sel, tab Rumus, chat (+ render Markdown)
-      i18n.js           <- teks Indonesia/Inggris
+Sesuai isi repo `jefribuloup/talkins` saat ini:
+
+```
+talkins/
+├── README.md
+├── LICENSE
+├── .gitignore
+├── requirements.txt        <- Flask, pandas, openpyxl, psycopg2, requests, python-dotenv, python-pptx
+├── vercel.json             <- build @vercel/python (api/index.py) + @vercel/static (static/**)
+├── api/
+│   └── index.py            <- entry point Flask: semua routing tipis, logic ada di lib/
+├── lib/
+│   ├── __init__.py
+│   ├── db.py               <- koneksi Neon Postgres + schema + migrasi otomatis + query
+│   ├── excel_engine.py     <- parsing/cleaning Excel, deteksi rumus, preview, manipulasi, export
+│   ├── chat_engine.py      <- chat-with-data (Gemini Flash primary, Groq fallback)
+│   ├── formula_engine.py   <- saran rumus untuk tab "Rumus" dari blok sel yang dipilih
+│   ├── recap_engine.py     <- rekap otomatis sheet: duplikat, kosong, format, error, statistik, kesimpulan
+│   └── slide_engine.py     <- slide dari data: build_deck, polish_deck (AI), render_pptx (.pptx native)
+├── templates/
+│   ├── index.html          <- landing page
+│   ├── dashboard.html      <- daftar file + unggah file/link
+│   ├── workspace.html      <- panel data (kiri) + tab Chat | Rumus | Rekap (kanan)
+│   └── partials/
+│       ├── navbar.html
+│       └── footer.html
+└── static/
+    ├── css/
+    │   ├── main.css        <- tema, layout umum, navbar/footer, dashboard
+    │   └── workspace.css   <- tampilan workspace (tabel, tab, chat, popup)
+    └── js/
+        ├── router.js       <- router tanpa reload (ganti konten antara navbar dan footer)
+        ├── preloader.js    <- preloader global di setiap fetch + progress bar
+        ├── theme.js        <- toggle tema gelap/terang
+        ├── i18n.js         <- teks Indonesia/Inggris
+        ├── confirm.js      <- dialog konfirmasi global (MejaConfirm)
+        ├── upload.js       <- unggah file/link dan daftar file di dashboard
+        ├── workspace.js    <- tabel, pemilihan sel, chat (+ render Markdown), rekap, slide, manipulasi
+        └── formula_tab.js  <- tab "Rumus" (blok sel -> saran rumus + pratinjau)
+```
+
+Catatan: `env-example.txt` yang disebut di bagian "3. Environment variables" belum ada
+di repo (tidak ikut ter-commit). Daftar variabelnya tetap ada di bagian itu, atau buat
+file tersebut dan commit (jangan isi dengan nilai rahasia sungguhan).
 
 ## Alur data (penting)
 
