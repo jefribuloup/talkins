@@ -1,0 +1,229 @@
+"""
+Login & daftar lewat Google OAuth 2.0 (Authorization Code flow, server-side).
+
+"Daftar" dan "Masuk" memakai alur yang sama: kalau akun Google belum pernah dipakai,
+akun Meja Data otomatis dibuat; kalau sudah ada, langsung masuk.
+
+Tanpa dependensi baru: cukup `requests` yang sudah ada.
+
+Cara kerja identitas:
+- Pengunjung anonim punya session["session_id"] = uuid acak (perilaku lama).
+- Setelah login, session["session_id"] diganti menjadi "user:<id>" yang STABIL di semua
+  perangkat. Karena seluruh kode lain hanya memakai session["session_id"], file & riwayat chat
+  otomatis terikat ke akun tanpa mengubah modul lain.
+- File yang diunggah saat masih anonim dipindahkan (diadopsi) ke akun saat pertama login.
+
+Environment variable:
+  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   (wajib, dari Google Cloud Console)
+  APP_BASE_URL       (opsional, mis. https://talkins.vercel.app; dasar redirect URI)
+  GOOGLE_REDIRECT_URI(opsional, menimpa APP_BASE_URL + /auth/google/callback)
+  REQUIRE_LOGIN=1    (opsional, wajib login untuk memakai aplikasi; default mati)
+"""
+import os
+import secrets
+import uuid
+from urllib.parse import urlencode, urlparse
+
+import requests
+from flask import redirect, request, session, jsonify, render_template
+
+from lib import db
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+DEFAULT_SECRET = "dev-secret-change-me"
+
+# Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
+_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/api/me")
+
+
+def _client_id():
+    return os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+
+
+def _client_secret():
+    return os.environ.get("GOOGLE_CLIENT_SECRET", "").strip()
+
+
+def _require_login():
+    return os.environ.get("REQUIRE_LOGIN", "").strip().lower() in ("1", "true", "yes")
+
+
+def _redirect_uri():
+    explicit = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
+    if explicit:
+        return explicit
+    base = os.environ.get("APP_BASE_URL", "").strip().rstrip("/") or request.host_url.rstrip("/")
+    host = urlparse(base).hostname or ""
+    if base.startswith("http://") and host not in ("localhost", "127.0.0.1"):
+        base = "https://" + base[len("http://"):]  # di balik proxy Vercel request tampak http
+    return base + "/auth/google/callback"
+
+
+def _safe_next(value):
+    """Cegah open-redirect: hanya path internal yang diterima."""
+    if not value or not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return "/dashboard"
+    return value
+
+
+def _user_session_id(user_id):
+    return f"user:{user_id}"
+
+
+def current_user():
+    """User yang sedang login (dict) atau None."""
+    uid = session.get("user_id")
+    if not uid:
+        return None
+    user = getattr(request, "_meja_user", None)
+    if user is None:
+        try:
+            user = db.get_user(uid) or False
+        except Exception:
+            user = False
+        request._meja_user = user
+    return user or None
+
+
+def _login(user, adopt_from):
+    """Tandai sesi sebagai login. Dipanggil hanya setelah identitas Google terverifikasi."""
+    sid = _user_session_id(user["id"])
+    if adopt_from and not str(adopt_from).startswith("user:"):
+        db.adopt_session(adopt_from, sid)  # file & chat tamu -> akun
+    session.clear()  # buang state lama (cegah session fixation)
+    session.permanent = True
+    session["user_id"] = user["id"]
+    session["session_id"] = sid
+
+
+def _fail(code):
+    return redirect("/login?" + urlencode({"error": code}))
+
+
+def register_routes(app):
+    secure_cookie = bool(os.environ.get("VERCEL")) or bool(os.environ.get("COOKIE_SECURE"))
+    app.config.update(
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",  # juga melindungi POST /auth/logout dari CSRF lintas situs
+        SESSION_COOKIE_SECURE=secure_cookie,
+        PERMANENT_SESSION_LIFETIME=60 * 60 * 24 * 30,
+    )
+
+    @app.context_processor
+    def inject_user():
+        return {"current_user": current_user(), "require_login": _require_login()}
+
+    @app.before_request
+    def gate():
+        # Wajib login (opsional). Dipasang sebagai before_request tambahan.
+        if not _require_login() or current_user():
+            return None
+        path = request.path
+        if path == "/" or path.startswith(_PUBLIC_PREFIXES):
+            return None
+        if path.startswith("/api/"):
+            return jsonify({"error": "Silakan masuk dulu.", "login_required": True}), 401
+        return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
+
+    @app.route("/login")
+    def login_page():
+        if current_user():
+            return redirect(_safe_next(request.args.get("next")))
+        return render_template("login.html", next_url=_safe_next(request.args.get("next")))
+
+    @app.route("/auth/google")
+    def auth_google():
+        if not _client_id() or not _client_secret():
+            return _fail("not_configured")
+        if app.secret_key == DEFAULT_SECRET and os.environ.get("VERCEL"):
+            return _fail("not_configured")  # SECRET_KEY default = sesi bisa dipalsukan
+
+        state = secrets.token_urlsafe(32)
+        session["oauth_state"] = state
+        session["oauth_next"] = _safe_next(request.args.get("next"))
+        params = {
+            "client_id": _client_id(),
+            "redirect_uri": _redirect_uri(),
+            "response_type": "code",
+            "scope": "openid email profile",
+            "state": state,
+            "prompt": "select_account",
+            "access_type": "online",
+        }
+        return redirect(GOOGLE_AUTH_URL + "?" + urlencode(params))
+
+    @app.route("/auth/google/callback")
+    def auth_google_callback():
+        if request.args.get("error"):
+            return _fail("access_denied" if request.args["error"] == "access_denied" else "failed")
+
+        expected = session.pop("oauth_state", None)
+        given = request.args.get("state", "")
+        if not expected or not secrets.compare_digest(expected, given):
+            return _fail("state")
+        code = request.args.get("code")
+        if not code:
+            return _fail("failed")
+        next_url = _safe_next(session.pop("oauth_next", None))
+
+        try:
+            tok = requests.post(
+                GOOGLE_TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": _client_id(),
+                    "client_secret": _client_secret(),
+                    "redirect_uri": _redirect_uri(),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+            )
+            tok.raise_for_status()
+            access_token = tok.json().get("access_token")
+            if not access_token:
+                return _fail("failed")
+            info = requests.get(
+                GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10,
+            )
+            info.raise_for_status()
+            profile = info.json()
+        except Exception:
+            return _fail("failed")
+
+        sub, email = profile.get("sub"), (profile.get("email") or "").lower()
+        if not sub or not email:
+            return _fail("failed")
+        if not profile.get("email_verified"):
+            return _fail("email_unverified")
+
+        try:
+            user = db.upsert_user(
+                google_sub=sub,
+                email=email,
+                name=profile.get("name") or email.split("@")[0],
+                picture=profile.get("picture"),
+            )
+            _login(user, adopt_from=session.get("session_id"))
+        except Exception:
+            return _fail("failed")
+        return redirect(next_url)
+
+    @app.route("/auth/logout", methods=["POST"])
+    def auth_logout():
+        session.clear()
+        session["session_id"] = str(uuid.uuid4())  # kembali jadi tamu baru
+        return redirect("/")
+
+    @app.route("/api/me")
+    def api_me():
+        user = current_user()
+        if not user:
+            return jsonify({"authenticated": False})
+        return jsonify({
+            "authenticated": True,
+            "user": {k: user.get(k) for k in ("id", "email", "name", "picture")},
+        })
