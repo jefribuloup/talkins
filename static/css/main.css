@@ -546,3 +546,29 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 .login-guest:hover { color: var(--accent); }
 
 @media (max-width: 640px) { .user-name { display: none; } .nav-register { display: none; } }
+
+/* ---------- Form login manual ---------- */
+
+.login-form { display: flex; flex-direction: column; gap: 14px; margin: 0 0 4px; text-align: left; }
+.login-field { display: flex; flex-direction: column; gap: 6px; }
+.login-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
+.login-field input {
+  width: 100%; height: 42px; padding: 0 12px; box-sizing: border-box;
+  font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--grid-line); border-radius: 8px;
+  outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.login-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.18); }
+.login-hint { font-size: 11.5px; color: var(--text-muted); }
+.pw-wrap { position: relative; display: block; }
+.pw-wrap input { padding-right: 92px; }
+.pw-toggle {
+  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+  padding: 4px 8px; border: 0; background: transparent; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--text-muted);
+}
+.pw-toggle:hover { color: var(--accent); }
+.login-submit { width: 100%; height: 44px; justify-content: center; font-size: 15px; margin-top: 4px; }
+.login-submit:disabled { opacity: 0.7; cursor: progress; }
+.login-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--grid-line); }
