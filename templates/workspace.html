@@ -107,14 +107,15 @@
           <p class="dropzone-title" data-i18n="dashboard.dropzone.title">Tarik file .xlsx ke sini</p>
           <p class="dropzone-sub" data-i18n="dashboard.dropzone.sub">atau klik untuk memilih dari komputer</p>
         </div>
-        <p class="dropzone-status" id="wsDropzoneStatus"></p>
+        
       </div>
+      <div class="upload-status" id="wsDropzoneStatus" role="status" aria-live="polite"></div>
     </div>
 
     <div class="upload-pane" id="uploadPaneLink" hidden>
       <input type="text" id="wsUrlInput" data-i18n-placeholder="workspace.upload.linkPlaceholder" placeholder="Tempel link Google Sheets (publik) atau URL file .xlsx...">
       <button class="btn btn-primary" id="wsUrlSubmit" data-i18n="workspace.upload.linkSubmit">Proses link</button>
-      <p class="dropzone-status" id="wsUrlStatus"></p>
+      <div class="upload-status" id="wsUrlStatus" role="status" aria-live="polite"></div>
     </div>
 
     <h4 class="upload-history-title" data-i18n="workspace.upload.historyTitle">File yang pernah diunggah</h4>
