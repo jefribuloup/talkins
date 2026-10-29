@@ -21,6 +21,7 @@
       <button type="button" class="login-tab" data-mode="register" role="tab" data-i18n="login.tab.register">Daftar</button>
     </div>
 
+    <div class="login-stage" id="loginStage">
     <div class="login-panel" data-panel="login">
       <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
       <p class="login-sub" data-i18n="login.sub.login">Masuk untuk membuka kembali file dan riwayat chat-mu dari perangkat mana saja.</p>
@@ -72,6 +73,7 @@
         <button type="submit" class="btn btn-primary login-submit" data-i18n="login.submit.register">Daftar</button>
       </form>
 </div>
+    </div>
 
     <p class="login-error" id="loginError" role="alert" hidden></p>
     <button type="button" class="login-error-link" id="goRegister" data-i18n="login.error.goRegister" hidden>Belum punya akun? Daftar sekarang</button>
@@ -111,22 +113,111 @@
     var label = document.getElementById("googleLabel");
     var errEl = document.getElementById("loginError");
 
-    function setMode(mode) {
-      var gr = document.getElementById("goRegister");
-      if (gr) gr.hidden = true;
+    // ---------- Pindah tab Masuk <-> Daftar dengan transisi halus ----------
+    // Urutan: (1) panel lama memudar -> (2) lebar + padding kartu dan tinggi area form bergerak
+    // bersamaan ke ukuran akhir, sementara panel baru sudah tersusun di lebar akhirnya (tidak
+    // tergencet/terbungkus ulang di tengah jalan) lalu muncul perlahan. Tombol Google dan
+    // pembatas ikut turun/naik mengikuti tinggi area form, jadi tidak ada elemen yang melompat.
+    var card = document.getElementById("loginCard");
+    var stage = document.getElementById("loginStage");
+    var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    var EASE = "cubic-bezier(0.4, 0, 0.2, 1)";
+    var seq = 0;
+
+    function shownPanel() { return stage.querySelector(".login-panel:not([hidden])"); }
+
+    function applyTabs(mode) {
       tabs.forEach(function (t) {
         var on = t.getAttribute("data-mode") === mode;
         t.classList.toggle("active", on);
         t.setAttribute("aria-selected", on ? "true" : "false");
       });
+    }
+
+    function applyPanels(mode) {
+      var gr = document.getElementById("goRegister");
+      if (gr) gr.hidden = true;
       panels.forEach(function (p) { p.hidden = p.getAttribute("data-panel") !== mode; });
-      document.getElementById("loginCard").classList.toggle("is-register", mode === "register");
+      card.classList.toggle("is-register", mode === "register");
       label.setAttribute("data-i18n", "login.google." + mode);
       if (window.MejaDataI18n) window.MejaDataI18n.apply(window.MejaDataI18n.getLang());
     }
 
+    // Ukuran kartu + area form saat ini (termasuk nilai tengah-animasi kalau sedang berjalan)
+    function measure() {
+      var cs = getComputedStyle(card);
+      return {
+        w: card.getBoundingClientRect().width,
+        pt: cs.paddingTop, pr: cs.paddingRight, pb: cs.paddingBottom, pl: cs.paddingLeft,
+        stageW: stage.getBoundingClientRect().width,
+        stageH: stage.getBoundingClientRect().height,
+      };
+    }
+
+    function resetMotion() {
+      card.getAnimations({ subtree: true }).forEach(function (a) { a.cancel(); });
+      stage.style.overflow = "";
+      panels.forEach(function (p) {
+        p.style.position = ""; p.style.width = ""; p.style.left = ""; p.style.marginLeft = "";
+      });
+    }
+
+    // done(): dipanggil begitu panel tujuan sudah tampil (mis. untuk memberi fokus ke sebuah kolom)
+    function setMode(mode, animate, done) {
+      var ticket = ++seq;
+      var current = shownPanel();
+      var from = measure();                 // ukur dulu, baru batalkan animasi yang masih berjalan
+      resetMotion();
+      applyTabs(mode);
+      var same = current && current.getAttribute("data-panel") === mode;
+      if (same || !current || !animate || reduceMotion.matches || !card.animate) {
+        applyPanels(mode);
+        if (done) done();
+        return;
+      }
+
+      // Tahap 1: panel lama memudar di ukuran lamanya
+      var out = current.animate(
+        [{ opacity: 1, transform: "none" }, { opacity: 0, transform: "translateY(-6px)" }],
+        { duration: 130, easing: "ease-in", fill: "forwards" }
+      );
+      out.finished.then(function () {
+        if (ticket !== seq) return;
+        // Tahap 2: tukar panel, ukur ukuran akhir, lalu animasikan dari ukuran awal ke akhir
+        resetMotion();
+        applyPanels(mode);
+        var to = measure();
+        var panel = shownPanel();
+
+        stage.style.overflow = "hidden";    // potong isi panel selama area form masih tumbuh/menyusut
+        panel.style.position = "relative";  // panel dikunci di lebar akhirnya, tetap di tengah
+        panel.style.width = to.stageW + "px";
+        panel.style.left = "50%";
+        panel.style.marginLeft = (-to.stageW / 2) + "px";
+
+        var box = function (m) {
+          return { width: m.w + "px", maxWidth: m.w + "px", paddingTop: m.pt, paddingRight: m.pr, paddingBottom: m.pb, paddingLeft: m.pl };
+        };
+        // fill: forwards -> nilai akhir ditahan sampai SEMUA animasi selesai (panel berakhir belakangan),
+        // supaya tidak ada satu frame tinggi "otomatis" saat area form masih terpotong
+        var opts = { duration: 440, easing: EASE, fill: "forwards" };
+        var runs = [
+          card.animate([box(from), box(to)], opts),
+          stage.animate([{ height: from.stageH + "px" }, { height: to.stageH + "px" }], opts),
+          panel.animate(
+            [{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "none" }],
+            { duration: 340, delay: 120, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "backwards" }
+          ),
+        ];
+        if (done) done();
+        Promise.all(runs.map(function (a) { return a.finished; })).then(function () {
+          if (ticket === seq) resetMotion();
+        }, function () { /* dibatalkan oleh perpindahan tab berikutnya */ });
+      }, function () { /* dibatalkan */ });
+    }
+
     tabs.forEach(function (t) {
-      t.addEventListener("click", function () { setMode(t.getAttribute("data-mode")); });
+      t.addEventListener("click", function () { setMode(t.getAttribute("data-mode"), true); });
     });
 
     var code = params.get("error");
@@ -153,13 +244,14 @@
     var goRegister = document.getElementById("goRegister");
     var lastIdentifier = "";
     goRegister.addEventListener("click", function () {
-      setMode("register");
       errEl.hidden = true;
       goRegister.hidden = true;
       // bawa yang sudah diketik: berisi "@" -> email, selain itu -> username
       var target = document.querySelector('#formRegister [name="' + (lastIdentifier.indexOf("@") > -1 ? "email" : "username") + '"]');
       if (target && lastIdentifier) target.value = lastIdentifier;
-      document.querySelector('#formRegister [name="name"]').focus();
+      setMode("register", true, function () {
+        document.querySelector('#formRegister [name="name"]').focus({ preventScroll: true });
+      });
     });
 
     function showError(code, minutes) {
@@ -298,7 +390,7 @@
         .requestAccessToken({ prompt: "select_account" });
     });
 
-    setMode(params.get("mode") === "register" ? "register" : "login");
+    setMode(params.get("mode") === "register" ? "register" : "login", false);
   })();
 </script>
 </body>
