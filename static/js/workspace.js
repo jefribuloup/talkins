@@ -1868,8 +1868,7 @@
   }
 
   function setWsStatus(msg, isError) {
-    wsDropzoneStatus.textContent = msg || "";
-    wsDropzoneStatus.classList.toggle("error", !!isError);
+    window.MejaHttp.renderStatus(wsDropzoneStatus, msg, isError);
   }
 
   function formatDate(iso) {
@@ -1998,8 +1997,7 @@
   });
 
   function setWsUrlStatus(msg, isError) {
-    wsUrlStatus.textContent = msg || "";
-    wsUrlStatus.classList.toggle("error", !!isError);
+    window.MejaHttp.renderStatus(wsUrlStatus, msg, isError);
   }
 
   async function uploadFromUrl() {
