@@ -1,779 +1,514 @@
-:root {
-  --bg: #0E1512;
-  --panel: #16201C;
-  --panel-raised: #1B2721;
-  --grid-line: #24322C;
-  --text: #E8EDE9;
-  --text-muted: #8A9B92;
-  --accent: #F2B705;
-  --accent-dim: #6b5a15;
-  --positive: #4FD1AE;
-  --danger: #E2664B;
-  --font-display: 'Space Grotesk', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-body: 'IBM Plex Sans', sans-serif;
-}
-
-:root[data-theme="light"] {
-  --bg: #F3F1EA;
-  --panel: #FFFFFF;
-  --panel-raised: #EAE7DC;
-  --grid-line: #D8D3C4;
-  --text: #16201C;
-  --text-muted: #5C6A62;
-  --accent: #B5860A;
-  --accent-dim: #E4CE8F;
-  --positive: #1F8F72;
-  --danger: #C2472E;
-}
-
-* { box-sizing: border-box; }
-
-html {
-  scrollbar-width: thin;
-  scrollbar-color: var(--grid-line) var(--bg);
-}
-
-html, body {
-  margin: 0;
-  padding: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-body);
-  -webkit-font-smoothing: antialiased;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-
-body > main { flex: 1 0 auto; }
-
-/* Skin native scrollbars to match the ledger theme everywhere they appear */
-::-webkit-scrollbar { width: 9px; height: 9px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--grid-line); border: 2px solid var(--bg); background-clip: padding-box; }
-::-webkit-scrollbar-thumb:hover { background: var(--accent-dim); background-clip: padding-box; }
-::-webkit-scrollbar-corner { background: var(--bg); }
-
-a { color: inherit; }
-
-::selection { background: var(--accent); color: #10130a; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
-}
-
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* ---------- Navbar ---------- */
-
-.navbar {
-  position: sticky;
-  top: 0;
-  z-index: 15;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding: 12px 32px;
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  -webkit-backdrop-filter: saturate(140%) blur(12px);
-  backdrop-filter: saturate(140%) blur(12px);
-  border-bottom: 1px solid var(--grid-line);
-  flex-shrink: 0;
-  transition: box-shadow 0.2s ease;
-}
-.navbar.scrolled { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22); }
-
-.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--text); }
-.brand-badge {
-  width: 36px; height: 36px; display: inline-flex; align-items: center; justify-content: center;
-  font-size: 19px; color: #111; background: var(--accent); border-radius: 9px;
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.brand-mark { color: var(--accent); font-size: 20px; }
-.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
-.brand-name { font-family: var(--font-display); font-weight: 700; font-size: 18px; letter-spacing: 0.01em; }
-.brand-sub { font-size: 11px; color: var(--text-muted); }
-
-.navbar-nav {
-  display: flex; align-items: center; gap: 4px; padding: 4px;
-  background: var(--panel); border: 1px solid var(--grid-line); border-radius: 999px;
-  font-size: 13.5px; font-weight: 500;
-}
-.nav-link {
-  padding: 7px 16px; border-radius: 999px; text-decoration: none;
-  color: var(--text-muted); transition: background 0.15s ease, color 0.15s ease;
-}
-.nav-link:hover { color: var(--text); background: color-mix(in srgb, var(--text) 8%, transparent); }
-.nav-link.active { color: #111; background: var(--accent); font-weight: 600; }
-
-.navbar-tools { display: flex; align-items: center; gap: 8px; }
-
-.toggle-btn {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  background: var(--panel);
-  border: 1px solid var(--grid-line);
-  color: var(--text);
-  width: 38px;
-  height: 34px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-.toggle-btn:hover { border-color: var(--accent); color: var(--accent); }
-
-/* Menu akun (dropdown tanpa JS; ditutup oleh theme.js saat klik di luar) */
-.user-menu { position: relative; }
-.user-menu-btn {
-  list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer;
-  padding: 3px 10px 3px 3px; height: 34px; box-sizing: border-box;
-  background: var(--panel); border: 1px solid var(--grid-line); border-radius: 999px;
-}
-.user-menu-btn::-webkit-details-marker { display: none; }
-.user-menu-btn:hover, .user-menu[open] .user-menu-btn { border-color: var(--accent); }
-.user-caret { font-size: 11px; color: var(--text-muted); }
-.user-menu-panel {
-  position: absolute; right: 0; top: calc(100% + 8px); min-width: 220px; padding: 6px;
-  background: var(--panel-raised); border: 1px solid var(--grid-line); border-radius: 10px;
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4); z-index: 20;
-}
-.user-menu-head { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px 12px; border-bottom: 1px solid var(--grid-line); margin-bottom: 6px; }
-.user-menu-head strong { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-head small { font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.user-menu-panel form { margin: 0; }
-.user-menu-item {
-  display: block; width: 100%; box-sizing: border-box; padding: 9px 12px; border: 0; border-radius: 6px;
-  background: transparent; color: var(--text); font: inherit; font-size: 13.5px; text-align: left;
-  text-decoration: none; cursor: pointer;
-}
-.user-menu-item:hover { background: color-mix(in srgb, var(--text) 8%, transparent); }
-.user-menu-danger { color: var(--danger); }
-
-/* ---------- Footer ---------- */
-
-.site-footer {
-  padding: 44px 32px 22px;
-  border-top: 1px solid var(--grid-line);
-  background: var(--panel);
-  font-size: 13.5px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-.footer-grid {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 32px;
-  max-width: 1100px;
-  margin: 0 auto;
-}
-.footer-brand p { margin: 14px 0 0; max-width: 340px; line-height: 1.6; }
-.footer-col h4 { margin: 0 0 12px; font-family: var(--font-display); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text); }
-.footer-col ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
-.footer-col form { margin: 0; }
-.footer-col a, .footer-linkbtn { color: var(--text-muted); text-decoration: none; transition: color 0.15s ease; }
-.footer-col a:hover, .footer-linkbtn:hover { color: var(--accent); }
-.footer-linkbtn { padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
-.footer-bottom {
-  max-width: 1100px; margin: 32px auto 0; padding-top: 18px;
-  border-top: 1px solid var(--grid-line); font-size: 12.5px;
-}
-
-@media (max-width: 860px) {
-  .navbar { padding: 12px 18px; }
-  .navbar-nav { order: 3; width: 100%; justify-content: center; }
-  .brand-sub { display: none; }
-  .footer-grid { grid-template-columns: 1fr 1fr; }
-  .footer-brand { grid-column: 1 / -1; }
-  .site-footer { padding: 32px 18px 18px; }
-}
-
-/* ---------- Hero ---------- */
-
-.hero {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 48px;
-  padding: 72px 32px;
-  max-width: 1180px;
-  margin: 0 auto;
-  align-items: center;
-}
-
-.hero-copy h1 {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(36px, 5vw, 56px);
-  line-height: 1.05;
-  margin: 0 0 20px;
-}
-
-.lede {
-  font-size: 17px;
-  line-height: 1.6;
-  color: var(--text-muted);
-  max-width: 46ch;
-  margin: 0 0 28px;
-}
-
-.btn-cta { display: inline-block; padding: 12px 22px; font-size: 14px; text-decoration: none; }
-
-.dropzone {
-  position: relative;
-  border: 1px solid var(--grid-line);
-  background: var(--panel);
-  min-height: 280px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  overflow: hidden;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.dropzone:hover,
-.dropzone.dragover {
-  border-color: var(--accent);
-  background: var(--panel-raised);
-}
-
-.dropzone-grid {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 28px 28px;
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.dropzone-content {
-  position: relative;
-  text-align: center;
-  padding: 24px;
-}
-
-.dropzone-plus {
-  font-family: var(--font-mono);
-  font-size: 32px;
-  color: var(--accent);
-  border: 1px solid var(--accent-dim);
-  width: 52px;
-  height: 52px;
-  line-height: 50px;
-  margin: 0 auto 16px;
-}
-
-.dropzone-title {
-  font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 17px;
-  margin: 0 0 4px;
-}
-
-.dropzone-sub {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--text-muted);
-  margin: 0;
-}
-
-.dropzone-status {
-  position: relative;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--positive);
-  min-height: 18px;
-  margin: 8px 0 0;
-}
-.dropzone-status.error { color: var(--danger); }
-/* Status upload: tampil DI LUAR kotak dropzone, tepat di bawahnya */
-.upload-status {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--positive);
-  margin: 14px 0 0;
-}
-.upload-status:empty { display: none; }
-
-.upload-status.is-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 14px 14px 16px;
-  color: var(--text);
-  font-family: var(--font-body);
-  font-size: 14px;
-  line-height: 1.5;
-  background: var(--panel);
-  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
-  border: 1px solid var(--danger);
-  border-left-width: 4px;
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
-  animation: uploadErrorIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.1);
-}
-.upload-error-icon {
-  flex: none;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--danger);
-  color: var(--bg);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 15px;
-  line-height: 26px;
-  text-align: center;
-}
-.upload-error-body { flex: 1; min-width: 0; }
-.upload-error-title {
-  display: block;
-  font-family: var(--font-display);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--danger);
-  margin-bottom: 2px;
-}
-.upload-error-text { display: block; overflow-wrap: anywhere; }
-.upload-error-close {
-  flex: none;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 22px;
-  line-height: 1;
-  padding: 0 4px;
-  cursor: pointer;
-}
-.upload-error-close:hover { color: var(--text); }
-@keyframes uploadErrorIn {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .upload-status.is-error { animation: none; }
-}
-
-/* ---------- Dialog konfirmasi (di luar popup, melayang di atas semuanya) ---------- */
-
-.btn-danger { border-color: var(--danger); color: var(--danger); }
-.btn-danger:hover { background: var(--danger); color: #fff; }
-
-.mc-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(6, 10, 8, 0.62);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
-  opacity: 0;
-  transition: opacity 0.16s ease;
-}
-.mc-overlay.show { opacity: 1; }
-.mc-overlay.hide { opacity: 0; }
-
-.mc-card {
-  --mc-tone: var(--accent);
-  width: min(420px, 100%);
-  padding: 28px 26px 22px;
-  text-align: center;
-  background: var(--panel-raised);
-  border: 1px solid var(--grid-line);
-  border-top: 3px solid var(--mc-tone);
-  border-radius: 12px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.03);
-  transform: translateY(14px) scale(0.96);
-  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.2);
-}
-.mc-overlay.show .mc-card { transform: none; }
-.mc-overlay.danger .mc-card { --mc-tone: var(--danger); }
-
-.mc-icon {
-  width: 52px;
-  height: 52px;
-  margin: 0 auto 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 24px;
-  line-height: 1;
-  color: var(--mc-tone);
-  background: color-mix(in srgb, var(--mc-tone) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--mc-tone) 45%, transparent);
-}
-.mc-title {
-  margin: 0 0 10px;
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 600;
-  color: var(--text);
-}
-.mc-detail {
-  display: inline-block;
-  max-width: 100%;
-  margin: 0 0 10px;
-  padding: 5px 12px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--text);
-  background: var(--bg);
-  border: 1px solid var(--grid-line);
-  border-radius: 999px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mc-message {
-  margin: 0 0 20px;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--text-muted);
-}
-.mc-actions { display: flex; gap: 10px; justify-content: center; }
-.mc-actions .btn { min-width: 110px; }
-
-@media (max-width: 480px) {
-  .mc-card { padding: 22px 18px 18px; }
-  .mc-actions { flex-direction: column-reverse; }
-  .mc-actions .btn { width: 100%; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mc-overlay, .mc-card { transition: none; }
-}
-
-/* ---------- Dashboard ---------- */
-
-.dashboard {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 56px 32px 96px;
-}
-
-.dashboard-head { margin-bottom: 32px; }
-.dashboard-head h1 {
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: clamp(28px, 4vw, 38px);
-  margin: 0 0 10px;
-}
-
-/* ---------- Feature strip ---------- */
-
-.strip {
-  border-top: 1px solid var(--grid-line);
-  border-bottom: 1px solid var(--grid-line);
-  max-width: 1180px;
-  margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-}
-
-.strip-row {
-  padding: 32px;
-  border-left: 1px solid var(--grid-line);
-}
-.strip-row:first-child { border-left: none; }
-
-.strip-index {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--accent);
-  margin-bottom: 10px;
-}
-
-.strip-row p {
-  margin: 0;
-  color: var(--text-muted);
-  line-height: 1.55;
-  font-size: 14.5px;
-}
-
-/* ---------- File list ---------- */
-
-.filelist {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 48px 32px 96px;
-}
-
-.filelist h2 {
-  font-family: var(--font-display);
-  font-size: 20px;
-  margin: 0 0 20px;
-}
-
-.filelist-empty {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  color: var(--text-muted);
-}
-
-.filelist-body { border-top: 1px solid var(--grid-line); }
-
-.file-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto auto;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--grid-line);
-  font-size: 14px;
-}
-
-.file-row .file-name { font-weight: 500; }
-.file-row .file-meta { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-muted); }
-
-.file-row a.btn,
-button.btn {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  background: transparent;
-  border: 1px solid var(--grid-line);
-  color: var(--text);
-  padding: 7px 14px;
-  cursor: pointer;
-  text-decoration: none;
-}
-.file-row a.btn:hover,
-button.btn:hover { border-color: var(--accent); color: var(--accent); }
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #10130a;
-  font-weight: 600;
-}
-.btn-primary:hover { color: #10130a; opacity: 0.9; }
-
-@media (max-width: 860px) {
-  .hero { grid-template-columns: 1fr; }
-  .strip { grid-template-columns: 1fr; }
-  .strip-row { border-left: none; border-top: 1px solid var(--grid-line); }
-  .strip-row:first-child { border-top: none; }
-}
-
-/* ---------- Preloader global (tengah layar, tidak memblokir interaksi) ---------- */
-
-.md-preloader {
-  position: fixed;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  z-index: 9999;
-  pointer-events: none;      /* interface di belakangnya tetap bisa dipakai */
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.18s ease, visibility 0.18s;
-}
-.md-preloader.show { opacity: 1; visibility: visible; }
-
-.md-preloader-box {
-  display: grid;
-  place-items: center;
-  width: clamp(56px, 12vw, 84px);   /* menyesuaikan lebar layar */
-  aspect-ratio: 1;
-  background: var(--panel-raised);
-  border: 1px solid var(--grid-line);
-  border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-}
-
-.md-spin {
-  width: 48%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  border: clamp(3px, 0.6vw, 4px) solid var(--grid-line);
-  border-top-color: var(--accent);
-  animation: md-spin 0.8s linear infinite;
-}
-@keyframes md-spin { to { transform: rotate(360deg); } }
-@keyframes md-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
-
-@media (prefers-reduced-motion: reduce) {
-  /* rotasi diganti denyut halus, tetap terlihat bahwa proses berjalan */
-  .md-preloader .md-spin {
-    animation: md-pulse 1.6s ease-in-out infinite !important;
-    animation-duration: 1.6s !important;
-    border-color: var(--accent);
+(function () {
+  const STORAGE_KEY = "meja-data-lang";
+
+  const DICT = {
+    id: {
+      "nav.home": "Beranda",
+      "nav.dashboard": "Dashboard",
+      "nav.login": "Masuk",
+      "nav.register": "Daftar",
+      "nav.logout": "Keluar",
+      "login.tab.login": "Masuk",
+      "login.tab.register": "Daftar",
+      "login.heading.login": "Selamat datang kembali",
+      "login.heading.register": "Buat akun gratis",
+      "login.sub.login": "Masuk dengan username dan kata sandi, atau lanjutkan dengan Google.",
+      "login.sub.register": "Buat akun dengan username dan kata sandi, atau daftar cepat dengan Google.",
+      "login.google.login": "Masuk dengan Google",
+      "login.google.register": "Daftar dengan Google",
+      "login.note": "File yang kamu unggah sebelum masuk otomatis dipindahkan ke akunmu.",
+      "login.guest": "Lanjut tanpa masuk",
+      "login.error.goRegister": "Belum punya akun? Daftar sekarang",
+      "notice.registered": "Pendaftaran berhasil! Selamat datang di Meja Data.",
+      "notice.login": "Berhasil masuk. Selamat datang kembali!",
+      "login.field.name": "Nama lengkap",
+      "login.field.identifier": "Username atau email",
+      "login.field.email": "Email",
+      "login.field.username": "Username",
+      "login.field.password": "Kata sandi",
+      "login.field.confirm": "Ulangi kata sandi",
+      "login.hint.username": "3–30 karakter: huruf kecil, angka, titik, atau garis bawah.",
+      "login.hint.password": "Minimal 8 karakter.",
+      "login.hint.google": "Daftar lewat Google? Gunakan tombol “Masuk dengan Google” di bawah. Akun Google tidak memakai kata sandi.",
+      "login.pw.show": "Tampilkan",
+      "login.pw.hide": "Sembunyikan",
+      "login.submit.login": "Masuk",
+      "login.submit.register": "Daftar",
+      "login.submit.loading": "Memproses...",
+      "login.or": "atau",
+      "login.error.invalid_credentials": "Username atau kata sandi salah.",
+      "login.error.username_taken": "Username ini sudah dipakai. Pilih username lain.",
+      "login.error.email_invalid": "Format email tidak valid.",
+      "login.error.email_taken": "Email ini sudah terdaftar. Silakan masuk, atau pakai email lain.",
+      "login.error.email_google": "Email ini sudah terdaftar lewat Google. Gunakan tombol \"Masuk dengan Google\".",
+      "login.error.username_invalid": "Username harus 3–30 karakter: huruf, angka, titik, atau garis bawah.",
+      "login.error.name_required": "Nama lengkap wajib diisi.",
+      "login.error.password_short": "Kata sandi minimal 8 karakter.",
+      "login.error.password_long": "Kata sandi terlalu panjang (maksimal 128 karakter).",
+      "login.error.password_weak": "Kata sandi tidak boleh sama dengan username.",
+      "login.error.password_mismatch": "Kata sandi dan pengulangannya tidak sama.",
+      "login.error.locked": "Terlalu banyak percobaan gagal. Coba lagi dalam {minutes} menit.",
+      "login.error.csrf": "Sesi form kedaluwarsa. Muat ulang halaman lalu coba lagi.",
+      "login.error.network": "Tidak dapat terhubung ke server. Coba lagi.",
+      "login.error.not_configured": "Login Google belum dikonfigurasi di server. Hubungi admin.",
+      "login.error.access_denied": "Izin Google dibatalkan. Coba lagi bila ingin masuk.",
+      "login.error.state": "Sesi login kedaluwarsa atau tidak valid. Silakan coba lagi.",
+      "login.error.email_unverified": "Email akun Google ini belum terverifikasi.",
+      "login.error.failed": "Login gagal. Silakan coba lagi sebentar lagi.",
+      "nav.how": "Cara Kerja",
+      "nav.brandSub": "Ngobrol dengan Excel-mu",
+      "index.hero.ctaGuest": "Daftar Gratis untuk Mulai",
+      "footer.desc": "Ngobrol dengan file Excel-mu, rapikan datanya, dan ubah jadi slide — tanpa menyentuh file aslinya.",
+      "footer.col.product": "Produk",
+      "footer.col.account": "Akun",
+      "footer.col.project": "Proyek",
+      "footer.rights": "Hak cipta dilindungi.",
+
+      "index.hero.title": "Ajak ngobrol<br>file Excel-mu.",
+      "index.hero.lede": "Upload satu atau banyak sheet, biar sistem yang rapikan datanya duluan. Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide — file asli di komputermu tidak pernah tersentuh sama sekali.",
+      "index.hero.cta": "Buka Dashboard",
+      "index.section.howitworks": "Cara kerja",
+      "index.feature1.label": "Sheet apa saja",
+      "index.feature1.text": "Single sheet atau puluhan sheet sekaligus. Semua baris dan kolom ditampilkan apa adanya seperti di Excel, tanpa ada yang dijadikan header.",
+      "index.feature2.label": "Salinan kerja, bukan file kamu",
+      "index.feature2.text": "Setiap upload dibuatkan salinan di cloud. Yang kamu edit, filter, atau bersihkan adalah salinan itu — file lokalmu tetap seperti semula.",
+      "index.feature3.label": "Ngobrol bebas",
+      "index.feature3.text": "Tanya pola, minta ringkasan, minta diubah jadi outline slide — bukan sekadar preview tabel statis.",
+
+      "dashboard.title": "Ruang unggah",
+      "dashboard.sub": "Setiap file yang kamu unggah dibuatkan salinan kerja di cloud.",
+      "dashboard.dropzone.title": "Tarik file .xlsx ke sini",
+      "dashboard.dropzone.sub": "atau klik untuk memilih dari komputer",
+      "drive.status.auth": "Menunggu izin Google Drive… setujui di jendela yang muncul.",
+      "drive.status.uploading": "Mengunggah ke Google Drive… {percent}% (file {size} MB)",
+      "drive.status.processing": "Upload selesai. Memproses file dari Google Drive…",
+      "drive.err.notConfigured": "Unggah file besar lewat Google Drive belum diaktifkan di server. Kecilkan dulu file-nya atau hubungi admin.",
+      "drive.err.cancelled": "Izin Google Drive dibatalkan, jadi file besar belum diunggah. Coba lagi lalu setujui izinnya.",
+      "drive.err.tooLarge": "File “{name}” berukuran {size} MB, melebihi batas {max} MB yang bisa diproses. Kecilkan dulu file-nya (hapus sheet atau baris yang tidak dipakai).",
+      "drive.err.auth": "Tidak bisa mendapat izin Google Drive. Coba lagi, dan pastikan popup tidak diblokir browser.",
+      "drive.err.upload": "Unggahan ke Google Drive gagal. Periksa koneksi internetmu lalu coba lagi.",
+      "drive.err.gis": "Layanan Google tidak bisa dimuat. Periksa koneksi internetmu atau matikan pemblokir iklan, lalu coba lagi.",
+      "dashboard.filelist.title": "File kamu di sesi ini",
+      "dashboard.filelist.empty": "Belum ada file. Upload di atas untuk mulai.",
+      "dashboard.filelist.open": "Buka",
+      "dashboard.filelist.delete": "Hapus",
+      "dashboard.status.processing": "Memproses {name} ...",
+      "common.loading": "Memuat data...",
+      "dashboard.status.success": "Berhasil: {count} sheet terbaca. Membuka ruang kerja...",
+      "dashboard.filelist.meta": "{count} sheet · diunggah {date}",
+
+      "workspace.btnUpload": "+ Unggah file",
+      "workspace.upload.title": "Unggah file Excel",
+      "workspace.upload.historyTitle": "File yang pernah diunggah",
+      "workspace.upload.current": "Sedang dibuka",
+      "workspace.upload.tabFile": "File",
+      "workspace.upload.tabLink": "Link spreadsheet",
+      "workspace.upload.linkPlaceholder": "Tempel link Google Sheets (publik) atau URL file .xlsx...",
+      "workspace.upload.linkSubmit": "Proses link",
+      "workspace.upload.linkProcessing": "Memproses link...",
+      "workspace.upload.dupTitle": "File ini sudah diunggah",
+      "workspace.upload.dupMessage": "Sudah diunggah pada {date}. Buka file yang sudah ada?",
+      "workspace.upload.dupMessageCurrent": "File ini sedang dibuka (diunggah {date}). Tutup popup dan lanjut di file ini?",
+      "workspace.upload.dupOpen": "Ya, buka",
+      "workspace.upload.dupCancel": "Tidak",
+      "workspace.upload.delTitle": "Yakin hapus file ini?",
+      "workspace.upload.delMessage": "File akan dihapus permanen beserta riwayat chat-nya.",
+      "workspace.upload.delMessageCurrent": "File ini sedang dibuka. Jika dihapus, kamu akan dialihkan ke file lain atau ruang unggah.",
+      "workspace.upload.delConfirm": "Ya, hapus",
+      "workspace.upload.delCancel": "Batal",
+      "workspace.btnReset": "Reset ke asli",
+      "workspace.btnSlides": "Jadikan slide",
+      "workspace.btnDownload": "Unduh salinan",
+      "workspace.toolbar.placeholder": "Pilih aksi...",
+      "workspace.toolbar.dropna": "Buang baris kosong",
+      "workspace.toolbar.dedupe": "Buang duplikat",
+      "workspace.toolbar.sort": "Urutkan kolom",
+      "workspace.toolbar.filter": "Filter baris",
+      "workspace.toolbar.castnumeric": "Ubah ke angka",
+      "workspace.toolbar.dropcolumn": "Hapus kolom",
+      "workspace.toolbar.apply": "Terapkan",
+      "workspace.chat.placeholder": "Tanya soal datamu...",
+      "workspace.chat.send": "Kirim",
+      "workspace.tabs.chat": "Chat",
+      "workspace.tabs.formula": "Rumus",
+      "workspace.tabs.recap": "Rekap",
+      "workspace.recap.loading": "Menganalisa data…",
+      "workspace.recap.error": "Rekap gagal dimuat",
+      "workspace.recap.refresh": "Perbarui rekap",
+      "workspace.recap.show": "Lihat sel",
+      "workspace.recap.score": "Kesehatan data",
+      "workspace.recap.filled": "terisi",
+      "workspace.recap.empty": "kosong",
+      "workspace.recap.conclusion": "Kesimpulan",
+      "workspace.recap.findings": "Temuan",
+      "workspace.recap.fill": "Kelengkapan per kolom",
+      "workspace.recap.numeric": "Statistik kolom angka",
+      "workspace.recap.categories": "Komposisi kategori",
+      "workspace.recap.dates": "Rentang tanggal",
+      "workspace.recap.median": "Median",
+      "workspace.recap.outliers": "Pencilan",
+      "workspace.recap.sev.high": "Tinggi",
+      "workspace.recap.sev.medium": "Sedang",
+      "workspace.recap.sev.low": "Rendah",
+      "workspace.recap.sev.info": "Info",
+      "workspace.recap.sev.ok": "Aman",
+      "workspace.recap.dataset": "Jenis data terdeteksi",
+      "workspace.recap.conf.high": "yakin",
+      "workspace.recap.conf.medium": "cukup yakin",
+      "workspace.recap.conf.low": "perkiraan",
+      "workspace.recap.click": "Klik bagian grafik untuk menyorot selnya di tabel.",
+      "workspace.recap.type.column": "Kolom",
+      "workspace.recap.type.bar": "Batang",
+      "workspace.recap.type.pie": "Pie",
+      "workspace.recap.hist": "Sebaran angka",
+      "workspace.recap.trend.month": "Tren per bulan",
+      "workspace.recap.trend.day": "Tren per hari",
+      "workspace.recap.pivot": "Tabel ringkasan",
+      "workspace.recap.pivot.count": "Jumlah baris",
+      "workspace.recap.pivot.sum": "Jumlah",
+      "workspace.recap.pivot.avg": "Rata-rata",
+      "workspace.recap.pivot.others": "Lainnya",
+      "workspace.recap.pivot.total": "Total",
+      "workspace.formula.empty": "Klik sel di tabel untuk melihat rumus dan alur datanya di sini. Shift+klik untuk rentang, Ctrl/Cmd+klik untuk beberapa sel, klik huruf kolom atau nomor baris untuk memilih satu kolom/baris penuh.",
+      "workspace.formula.selected": "{n} sel dipilih · {f} rumus",
+      "workspace.formula.noneInSheet": "Tidak ada rumus terdeteksi di sheet ini. Rumus hanya terbaca dari file .xlsx/.xlsm (format .xls lama tidak menyimpannya).",
+      "workspace.formula.badgeFormula": "Rumus",
+      "workspace.formula.badgeStatic": "Nilai statis",
+      "workspace.formula.badgePlain": "Data biasa",
+      "workspace.formula.badgeUnknown": "Tidak pasti",
+      "workspace.formula.result": "Hasil",
+      "workspace.formula.value": "Nilai",
+      "workspace.formula.deps": "Bahan rumus (klik untuk tandai di tabel)",
+      "workspace.formula.depsRow": "baris {r}",
+      "workspace.formula.depsRows": "baris {a}–{b}",
+      "workspace.formula.depsOutside": "di luar area data",
+      "workspace.formula.otherSheet": "Rumus ini juga merujuk sheet lain.",
+      "workspace.formula.staticNote": "Kolom {col} umumnya berisi rumus, tapi sel ini nilai manual/statis.",
+      "workspace.formula.dirtyNote": "Data sheet ini sudah diurutkan/difilter, jadi posisi baris berubah dan rumus per-sel tidak bisa dipastikan. Kolom {col} aslinya {pct}% berisi rumus (mis. {sample}). Gunakan Reset untuk kembali ke data asli.",
+      "workspace.formula.more": "+{n} sel lain tidak ditampilkan — pilih rentang yang lebih kecil.",
+      "workspace.formula.dirtyFlag": "data sudah dimanipulasi",
+      "workspace.suggest.title": "Saran rumus",
+      "workspace.suggest.loading": "Menghitung saran rumus…",
+      "workspace.suggest.copy": "Salin",
+      "workspace.suggest.copied": "Tersalin",
+      "workspace.suggest.sep": "Pemisah argumen",
+      "workspace.suggest.preview": "Contoh hasil, {n} baris pertama",
+      "workspace.grid.info": "Data: {rows} baris × {cols} kolom · scroll untuk melihat baris/kolom kosong",
+      "workspace.suggest.dirty": "Data sudah diurutkan/difilter, jadi alamat sel mengikuti nomor baris yang tampil di tabel.",
+      "workspace.suggest.notRect": "Saran rumus muncul untuk satu blok persegi panjang. Pilih dengan klik + Shift+klik, atau klik huruf kolom / nomor baris (tanpa Ctrl+klik).",
+      "workspace.suggest.gap": "Kolom yang dipilih tidak berurutan di sheet asli, jadi alamat rumus tidak bisa dibuat dengan benar. Pilih kolom yang bersebelahan.",
+      "workspace.suggest.error": "Saran rumus gagal dimuat",
+      "workspace.suggest.tooBig": "Pilihan terlalu besar untuk saran rumus (maksimal 20.000 sel). Pilih area yang lebih kecil.",
+      "workspace.stats.average": "Rata-rata",
+      "workspace.stats.count": "Hitung",
+      "workspace.stats.numCount": "Hitung angka",
+      "workspace.stats.min": "Min",
+      "workspace.stats.max": "Maks",
+      "workspace.stats.sum": "Jumlah",
+      "workspace.stats.fullNote": "Pilihan yang belum seluruhnya dimuat di layar dihitung langsung dari seluruh data ({n} baris) di server.",
+      "workspace.stats.loading": "Menghitung dari seluruh data…",
+      "workspace.stats.error": "Gagal menghitung dari seluruh data, jadi yang ditampilkan hanya sel yang sudah dimuat.",
+      "workspace.chat.thinking": "Berpikir...",
+      "workspace.chat.sheetsUsed": "Sheet dianalisis: {sheets}",
+      "workspace.chat.errorPrefix": "Gagal",
+      "workspace.chat.errorAnswer": "Gagal mendapat jawaban",
+      "workspace.pager.info": "Hal {page} / {total} · {rows} baris",
+      "workspace.chat.intro": "Halo, tanya apa saja soal data yang kamu unggah — pola, ringkasan, atau minta diproses jadi bentuk lain.",
+      "workspace.pager.prev": "‹ Sebelumnya",
+      "workspace.pager.next": "Selanjutnya ›",
+      "workspace.slide.title": "Buat slide dari data ini",
+      "workspace.slide.topicPlaceholder": "Topik slide, mis. 'Ringkasan penjualan Q3'",
+      "workspace.slide.generate": "Buat slide",
+      "workspace.slide.desc": "Slide disusun otomatis dari data (judul, angka kunci, grafik, tabel ringkasan, kualitas data) dan bisa diunduh sebagai PowerPoint.",
+      "workspace.slide.building": "Menyusun slide dari data…",
+      "workspace.slide.present": "Presentasi",
+      "workspace.slide.export": "Unduh PPTX",
+      "workspace.slide.exporting": "Menyiapkan file…",
+      "workspace.slide.edit": "Klik teks di slide untuk mengedit",
+      "workspace.slide.ai.working": "AI sedang memoles teks…",
+      "workspace.slide.ai.done": "Teks dipoles AI ✓",
+      "workspace.slide.ai.fail": "Memakai teks bawaan",
+      "workspace.slide.close": "Tutup",
+    },
+    en: {
+      "nav.home": "Home",
+      "nav.dashboard": "Dashboard",
+      "nav.login": "Sign in",
+      "nav.register": "Sign up",
+      "nav.logout": "Sign out",
+      "login.tab.login": "Sign in",
+      "login.tab.register": "Sign up",
+      "login.heading.login": "Welcome back",
+      "login.heading.register": "Create a free account",
+      "login.sub.login": "Sign in with your username and password, or continue with Google.",
+      "login.sub.register": "Create an account with a username and password, or sign up quickly with Google.",
+      "login.google.login": "Sign in with Google",
+      "login.google.register": "Sign up with Google",
+      "login.note": "Files you uploaded before signing in are moved to your account automatically.",
+      "login.guest": "Continue without signing in",
+      "login.error.goRegister": "No account yet? Sign up now",
+      "notice.registered": "Registration successful! Welcome to Meja Data.",
+      "notice.login": "Signed in. Welcome back!",
+      "login.field.name": "Full name",
+      "login.field.identifier": "Username or email",
+      "login.field.email": "Email",
+      "login.field.username": "Username",
+      "login.field.password": "Password",
+      "login.field.confirm": "Confirm password",
+      "login.hint.username": "3–30 characters: lowercase letters, numbers, dots or underscores.",
+      "login.hint.password": "At least 8 characters.",
+      "login.hint.google": "Signed up with Google? Use the “Sign in with Google” button below. Google accounts don't use a password.",
+      "login.pw.show": "Show",
+      "login.pw.hide": "Hide",
+      "login.submit.login": "Sign in",
+      "login.submit.register": "Sign up",
+      "login.submit.loading": "Processing...",
+      "login.or": "or",
+      "login.error.invalid_credentials": "Incorrect username or password.",
+      "login.error.username_taken": "This username is already taken. Choose another one.",
+      "login.error.email_invalid": "Invalid email format.",
+      "login.error.email_taken": "This email is already registered. Please sign in, or use another email.",
+      "login.error.email_google": "This email is already registered with Google. Use the \"Sign in with Google\" button.",
+      "login.error.username_invalid": "Username must be 3–30 characters: letters, numbers, dots or underscores.",
+      "login.error.name_required": "Full name is required.",
+      "login.error.password_short": "Password must be at least 8 characters.",
+      "login.error.password_long": "Password is too long (max 128 characters).",
+      "login.error.password_weak": "Password must not be the same as the username.",
+      "login.error.password_mismatch": "Passwords do not match.",
+      "login.error.locked": "Too many failed attempts. Try again in {minutes} minutes.",
+      "login.error.csrf": "Your form session expired. Reload the page and try again.",
+      "login.error.network": "Cannot reach the server. Please try again.",
+      "login.error.not_configured": "Google sign-in is not configured on the server. Please contact the admin.",
+      "login.error.access_denied": "Google permission was cancelled. Try again if you want to sign in.",
+      "login.error.state": "Your sign-in session expired or is invalid. Please try again.",
+      "login.error.email_unverified": "This Google account's email is not verified.",
+      "login.error.failed": "Sign-in failed. Please try again in a moment.",
+      "nav.how": "How it works",
+      "nav.brandSub": "Chat with your Excel",
+      "index.hero.ctaGuest": "Sign up free to start",
+      "footer.desc": "Chat with your Excel files, clean up your data, and turn it into slides — without ever touching the originals.",
+      "footer.col.product": "Product",
+      "footer.col.account": "Account",
+      "footer.col.project": "Project",
+      "footer.rights": "All rights reserved.",
+
+      "index.hero.title": "Chat with<br>your Excel files.",
+      "index.hero.lede": "Upload one sheet or dozens, and the system tidies the data first. Ask anything about it, tweak the numbers, turn results into slides — the file on your computer is never touched.",
+      "index.hero.cta": "Open Dashboard",
+      "index.section.howitworks": "How it works",
+      "index.feature1.label": "Any sheet layout",
+      "index.feature1.text": "One sheet or dozens at once. Every row and column is shown exactly as in Excel, with nothing treated as a header.",
+      "index.feature2.label": "A working copy, not your file",
+      "index.feature2.text": "Every upload gets a cloud copy. Whatever you edit, filter, or clean is that copy — your local file stays exactly as it was.",
+      "index.feature3.label": "Chat freely",
+      "index.feature3.text": "Ask about patterns, request summaries, turn it into a slide outline — not just a static table preview.",
+
+      "dashboard.title": "Upload space",
+      "dashboard.sub": "Every file you upload gets a working copy in the cloud.",
+      "dashboard.dropzone.title": "Drag an .xlsx file here",
+      "dashboard.dropzone.sub": "or click to choose one from your computer",
+      "drive.status.auth": "Waiting for Google Drive permission… approve it in the window that appears.",
+      "drive.status.uploading": "Uploading to Google Drive… {percent}% ({size} MB file)",
+      "drive.status.processing": "Upload complete. Processing the file from Google Drive…",
+      "drive.err.notConfigured": "Large-file upload via Google Drive isn't enabled on the server. Please shrink the file or contact the admin.",
+      "drive.err.cancelled": "Google Drive permission was cancelled, so the large file wasn't uploaded. Try again and approve the permission.",
+      "drive.err.tooLarge": "The file “{name}” is {size} MB, over the {max} MB limit that can be processed. Please shrink it (remove unused sheets or rows).",
+      "drive.err.auth": "Couldn't get Google Drive permission. Try again, and make sure your browser isn't blocking the popup.",
+      "drive.err.upload": "Upload to Google Drive failed. Check your internet connection and try again.",
+      "drive.err.gis": "Google's sign-in service couldn't be loaded. Check your connection or disable your ad blocker, then try again.",
+      "dashboard.filelist.title": "Your files this session",
+      "dashboard.filelist.empty": "No files yet. Upload one above to get started.",
+      "dashboard.filelist.open": "Open",
+      "dashboard.filelist.delete": "Delete",
+      "dashboard.status.processing": "Processing {name} ...",
+      "common.loading": "Loading data...",
+      "dashboard.status.success": "Success: {count} sheet(s) read. Opening workspace...",
+      "dashboard.filelist.meta": "{count} sheet(s) · uploaded {date}",
+
+      "workspace.btnUpload": "+ Upload file",
+      "workspace.upload.title": "Upload an Excel file",
+      "workspace.upload.historyTitle": "Previously uploaded files",
+      "workspace.upload.current": "Currently open",
+      "workspace.upload.tabFile": "File",
+      "workspace.upload.tabLink": "Spreadsheet link",
+      "workspace.upload.linkPlaceholder": "Paste a public Google Sheets link or a .xlsx file URL...",
+      "workspace.upload.linkSubmit": "Process link",
+      "workspace.upload.linkProcessing": "Processing link...",
+      "workspace.upload.dupTitle": "This file was already uploaded",
+      "workspace.upload.dupMessage": "Uploaded on {date}. Open the existing file?",
+      "workspace.upload.dupMessageCurrent": "This file is open right now (uploaded {date}). Close the popup and keep working on it?",
+      "workspace.upload.dupOpen": "Yes, open",
+      "workspace.upload.dupCancel": "No",
+      "workspace.upload.delTitle": "Delete this file?",
+      "workspace.upload.delMessage": "The file will be permanently deleted along with its chat history.",
+      "workspace.upload.delMessageCurrent": "This file is open right now. If deleted, you will be taken to another file or the upload space.",
+      "workspace.upload.delConfirm": "Yes, delete",
+      "workspace.upload.delCancel": "Cancel",
+      "workspace.btnReset": "Reset to original",
+      "workspace.btnSlides": "Turn into slides",
+      "workspace.btnDownload": "Download copy",
+      "workspace.toolbar.placeholder": "Choose an action...",
+      "workspace.toolbar.dropna": "Drop empty rows",
+      "workspace.toolbar.dedupe": "Drop duplicates",
+      "workspace.toolbar.sort": "Sort by column",
+      "workspace.toolbar.filter": "Filter rows",
+      "workspace.toolbar.castnumeric": "Convert to numbers",
+      "workspace.toolbar.dropcolumn": "Drop column",
+      "workspace.toolbar.apply": "Apply",
+      "workspace.chat.placeholder": "Ask about your data...",
+      "workspace.chat.send": "Send",
+      "workspace.tabs.chat": "Chat",
+      "workspace.tabs.formula": "Formulas",
+      "workspace.tabs.recap": "Recap",
+      "workspace.recap.loading": "Analysing data…",
+      "workspace.recap.error": "Couldn't load recap",
+      "workspace.recap.refresh": "Refresh recap",
+      "workspace.recap.show": "Show cells",
+      "workspace.recap.score": "Data health",
+      "workspace.recap.filled": "filled",
+      "workspace.recap.empty": "empty",
+      "workspace.recap.conclusion": "Conclusion",
+      "workspace.recap.findings": "Findings",
+      "workspace.recap.fill": "Completeness per column",
+      "workspace.recap.numeric": "Numeric column statistics",
+      "workspace.recap.categories": "Category breakdown",
+      "workspace.recap.dates": "Date range",
+      "workspace.recap.median": "Median",
+      "workspace.recap.outliers": "Outliers",
+      "workspace.recap.sev.high": "High",
+      "workspace.recap.sev.medium": "Medium",
+      "workspace.recap.sev.low": "Low",
+      "workspace.recap.sev.info": "Info",
+      "workspace.recap.sev.ok": "OK",
+      "workspace.recap.dataset": "Detected data type",
+      "workspace.recap.conf.high": "confident",
+      "workspace.recap.conf.medium": "fairly sure",
+      "workspace.recap.conf.low": "estimate",
+      "workspace.recap.click": "Click part of a chart to highlight its cells in the table.",
+      "workspace.recap.type.column": "Column",
+      "workspace.recap.type.bar": "Bar",
+      "workspace.recap.type.pie": "Pie",
+      "workspace.recap.hist": "Value distribution",
+      "workspace.recap.trend.month": "Trend by month",
+      "workspace.recap.trend.day": "Trend by day",
+      "workspace.recap.pivot": "Summary table",
+      "workspace.recap.pivot.count": "Row count",
+      "workspace.recap.pivot.sum": "Sum",
+      "workspace.recap.pivot.avg": "Average",
+      "workspace.recap.pivot.others": "Others",
+      "workspace.recap.pivot.total": "Total",
+      "workspace.formula.empty": "Click a cell in the table to see its formula and data flow here. Shift+click for a range, Ctrl/Cmd+click for multiple cells, click a column title or row number to select a whole column/row.",
+      "workspace.formula.selected": "{n} cells selected · {f} formulas",
+      "workspace.formula.noneInSheet": "No formulas detected in this sheet. Formulas are only readable from .xlsx/.xlsm files (legacy .xls does not store them).",
+      "workspace.formula.badgeFormula": "Formula",
+      "workspace.formula.badgeStatic": "Static value",
+      "workspace.formula.badgePlain": "Plain data",
+      "workspace.formula.badgeUnknown": "Uncertain",
+      "workspace.formula.result": "Result",
+      "workspace.formula.value": "Value",
+      "workspace.formula.deps": "Formula inputs (click to mark in table)",
+      "workspace.formula.depsRow": "row {r}",
+      "workspace.formula.depsRows": "rows {a}–{b}",
+      "workspace.formula.depsOutside": "outside the data area",
+      "workspace.formula.otherSheet": "This formula also references another sheet.",
+      "workspace.formula.staticNote": "Column {col} mostly contains formulas, but this cell is a manual/static value.",
+      "workspace.formula.dirtyNote": "This sheet was sorted/filtered, so row positions changed and per-cell formulas can't be confirmed. Column {col} originally had {pct}% formulas (e.g. {sample}). Use Reset to return to the original data.",
+      "workspace.formula.more": "+{n} more cells not shown — select a smaller range.",
+      "workspace.formula.dirtyFlag": "data was manipulated",
+      "workspace.suggest.title": "Formula suggestions",
+      "workspace.suggest.loading": "Working out formula suggestions…",
+      "workspace.suggest.copy": "Copy",
+      "workspace.suggest.copied": "Copied",
+      "workspace.suggest.sep": "Argument separator",
+      "workspace.suggest.preview": "Sample output, first {n} rows",
+      "workspace.grid.info": "Data: {rows} rows × {cols} columns · scroll to see empty rows/columns",
+      "workspace.suggest.dirty": "Data was sorted/filtered, so cell addresses follow the row numbers shown in the table.",
+      "workspace.suggest.notRect": "Formula suggestions work for a single rectangular block. Select with click + Shift+click, or click a column letter / row number (no Ctrl+click).",
+      "workspace.suggest.gap": "The selected columns aren't adjacent in the original sheet, so formula addresses can't be built correctly. Select neighbouring columns.",
+      "workspace.suggest.error": "Couldn't load formula suggestions",
+      "workspace.suggest.tooBig": "Selection is too large for formula suggestions (max 20,000 cells). Select a smaller area.",
+      "workspace.stats.average": "Average",
+      "workspace.stats.count": "Count",
+      "workspace.stats.numCount": "Numerical count",
+      "workspace.stats.min": "Min",
+      "workspace.stats.max": "Max",
+      "workspace.stats.sum": "Sum",
+      "workspace.stats.fullNote": "Selections not fully loaded on screen are calculated from the full data ({n} rows) on the server.",
+      "workspace.stats.loading": "Calculating from the full data…",
+      "workspace.stats.error": "Couldn't calculate from the full data, so only the cells already loaded are shown.",
+      "workspace.chat.thinking": "Thinking...",
+      "workspace.chat.sheetsUsed": "Sheets analyzed: {sheets}",
+      "workspace.chat.errorPrefix": "Failed",
+      "workspace.chat.errorAnswer": "Failed to get an answer",
+      "workspace.pager.info": "Page {page} / {total} · {rows} rows",
+      "workspace.chat.intro": "Hi — ask anything about the data you uploaded: patterns, summaries, or ask to turn it into another format.",
+      "workspace.pager.prev": "‹ Previous",
+      "workspace.pager.next": "Next ›",
+      "workspace.slide.title": "Create slides from this data",
+      "workspace.slide.topicPlaceholder": "Slide topic, e.g. 'Q3 sales summary'",
+      "workspace.slide.generate": "Create slides",
+      "workspace.slide.desc": "Slides are built automatically from your data (title, key numbers, charts, summary table, data quality) and can be downloaded as PowerPoint.",
+      "workspace.slide.building": "Building slides from the data…",
+      "workspace.slide.present": "Present",
+      "workspace.slide.export": "Download PPTX",
+      "workspace.slide.exporting": "Preparing file…",
+      "workspace.slide.edit": "Click text on a slide to edit it",
+      "workspace.slide.ai.working": "AI is polishing the text…",
+      "workspace.slide.ai.done": "Text polished by AI ✓",
+      "workspace.slide.ai.fail": "Using default text",
+      "workspace.slide.close": "Close",
+    },
+  };
+
+  function applyLang(lang) {
+    const dict = DICT[lang] || DICT.id;
+
+    document.querySelectorAll("[data-i18n]").forEach((el) => {
+      const key = el.getAttribute("data-i18n");
+      if (!(key in dict)) return;
+      if (el.hasAttribute("data-i18n-html")) {
+        el.innerHTML = dict[key];
+      } else {
+        el.textContent = dict[key];
+      }
+    });
+
+    document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+      const key = el.getAttribute("data-i18n-placeholder");
+      if (key in dict) el.setAttribute("placeholder", dict[key]);
+    });
+
+    const langCurrent = document.getElementById("langCurrent");
+    if (langCurrent) langCurrent.textContent = lang.toUpperCase();
+
+    document.documentElement.setAttribute("lang", lang);
+
+    // Beri tahu skrip lain (mis. workspace.js) supaya teks yang dibuat lewat JS ikut diterjemahkan.
+    window.dispatchEvent(new CustomEvent("mejadata:langchange", { detail: { lang } }));
   }
-}
 
-/* ---------- Progress bar pindah page (di bawah navbar) ---------- */
+  window.MejaDataI18n = {
+    dict: DICT,
+    t(key, lang) {
+      const l = lang || localStorage.getItem(STORAGE_KEY) || "id";
+      return (DICT[l] || DICT.id)[key] || key;
+    },
+    apply: applyLang,
+    getLang() {
+      return localStorage.getItem(STORAGE_KEY) || "id";
+    },
+  };
 
-.nav-progress {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;               /* menempel di garis bawah navbar */
-  height: 3px;
-  overflow: hidden;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.25s ease;
-}
-.nav-progress.active { opacity: 1; }
-.nav-progress span {
-  display: block;
-  width: 100%;
-  height: 100%;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 0.25s ease-out;
-}
+  const saved = localStorage.getItem(STORAGE_KEY) || "id";
+  applyLang(saved);
 
-/* ---------- Login & daftar (Google) ---------- */
-
-.nav-login { height: 34px; padding: 0 14px; font-size: 13px; display: inline-flex; align-items: center; }
-.user-name { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--text); }
-.user-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; border: 1px solid var(--grid-line); }
-.user-avatar-fallback { display: inline-flex; align-items: center; justify-content: center; background: var(--accent); color: #111; font-weight: 700; font-size: 13px; }
-
-.login-wrap { min-height: calc(100vh - 160px); display: flex; align-items: center; justify-content: center; padding: 40px 20px; }
-.login-card {
-  width: min(420px, 100%);
-  padding: 30px 28px 24px;
-  background: var(--panel-raised);
-  border: 1px solid var(--grid-line);
-  border-top: 3px solid var(--accent);
-  border-radius: 12px;
-  text-align: center;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
-}
-.login-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 22px; padding: 4px; background: var(--bg); border: 1px solid var(--grid-line); border-radius: 999px; }
-.login-tab { padding: 8px 0; border: 0; border-radius: 999px; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
-.login-tab.active { background: var(--accent); color: #111; }
-.login-card h1 { margin: 0 0 8px; font-family: var(--font-display); font-size: 24px; color: var(--text); }
-.login-sub { margin: 0 0 22px; font-size: 14px; line-height: 1.55; color: var(--text-muted); }
-.login-error { margin: 0 0 16px; padding: 10px 12px; font-size: 13px; text-align: left; color: var(--danger); background: rgba(220, 60, 60, 0.08); border: 1px solid var(--danger); border-radius: 6px; }
-.btn-google {
-  display: flex; align-items: center; justify-content: center; gap: 12px;
-  width: 100%; height: 46px; border-radius: 8px;
-  background: #fff; color: #1f1f1f; border: 1px solid #dadce0;
-  font-size: 15px; font-weight: 600; text-decoration: none;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
-}
-.btn-google:hover { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28); transform: translateY(-1px); }
-.login-note { margin: 16px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--text-muted); }
-.login-guest { display: inline-block; margin-top: 14px; font-size: 13px; color: var(--text-muted); text-decoration: underline; }
-.login-guest:hover { color: var(--accent); }
-
-@media (max-width: 640px) { .user-name { display: none; } .nav-register { display: none; } }
-
-/* ---------- Form login manual ---------- */
-
-.login-form { display: flex; flex-direction: column; gap: 14px; margin: 0 0 4px; text-align: left; }
-.login-field { display: flex; flex-direction: column; gap: 6px; }
-.login-label { font-size: 12.5px; font-weight: 600; color: var(--text-muted); }
-.login-field input {
-  width: 100%; height: 42px; padding: 0 12px; box-sizing: border-box;
-  font: inherit; font-size: 14px; color: var(--text);
-  background: var(--bg); border: 1px solid var(--grid-line); border-radius: 8px;
-  outline: none; transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-.login-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.18); }
-.login-hint { font-size: 11.5px; color: var(--text-muted); }
-.pw-wrap { position: relative; display: block; }
-.pw-wrap input { padding-right: 92px; }
-.pw-toggle {
-  position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
-  padding: 4px 8px; border: 0; background: transparent; cursor: pointer;
-  font: inherit; font-size: 12px; font-weight: 600; color: var(--text-muted);
-}
-.pw-toggle:hover { color: var(--accent); }
-.login-submit { width: 100%; height: 44px; justify-content: center; font-size: 15px; margin-top: 4px; }
-.login-submit:disabled { opacity: 0.7; cursor: progress; }
-.login-divider { display: flex; align-items: center; gap: 12px; margin: 18px 0; color: var(--text-muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
-.login-divider::before, .login-divider::after { content: ""; flex: 1; height: 1px; background: var(--grid-line); }
-
-/* ---------- Form daftar responsif: grid kiri-kanan di desktop & tablet, 1 kolom di mobile ---------- */
-
-.login-card { width: 100%; max-width: 420px; transition: max-width 0.25s ease, padding 0.25s ease; }
-
-.login-form-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
-.login-form-grid > * { min-width: 0; }              /* cegah input meluap dari kolom */
-.login-form-grid { align-items: start; }   /* kolom tidak dipaksa sejajar: tiap field setinggi isinya */
-/* Tombol Daftar: di bawah semua field, lebarnya sama dengan tombol Google */
-.login-form-grid .login-submit {
-  grid-column: 1 / -1;
-  justify-self: center;
-  width: 100%;
-  max-width: 420px;
-}
-.login-submit, .btn-google { box-sizing: border-box; }
-
-/* Tombol Google & pembatas tetap proporsional di kartu yang lebar */
-.login-card.is-register .login-divider,
-.login-card.is-register .btn-google { max-width: 420px; margin-left: auto; margin-right: auto; }
-.login-card.is-register .login-divider { box-sizing: border-box; }
-
-/* Desktop (>= 1024px): kartu lebar, 2 kolom */
-@media (min-width: 1024px) {
-  .login-card.is-register { max-width: 780px; padding: 36px 44px 28px; }
-  .login-form-grid { grid-template-columns: 1fr 1fr; gap: 18px 26px; }
-}
-
-/* Tablet (640px - 1023px): kartu sedang, tetap 2 kolom */
-@media (min-width: 640px) and (max-width: 1023.98px) {
-  .login-card.is-register { max-width: 620px; padding: 30px 28px 24px; }
-  .login-form-grid { grid-template-columns: 1fr 1fr; gap: 16px 18px; }
-}
-
-/* Mobile (< 640px): 1 kolom, kartu hampir selebar layar */
-@media (max-width: 639.98px) {
-  .login-wrap { padding: 24px 14px; align-items: flex-start; }
-  .login-card { padding: 24px 18px 20px; }
-  .login-form-grid { grid-template-columns: 1fr; gap: 14px; }
-}
-
-/* ---------- Notifikasi (toast) & tautan daftar ---------- */
-
-.toast {
-  position: fixed; top: 76px; left: 50%; z-index: 9000;
-  display: flex; align-items: center; gap: 10px; max-width: min(460px, calc(100vw - 28px));
-  padding: 12px 14px 12px 12px; box-sizing: border-box;
-  background: var(--panel-raised); color: var(--text);
-  border: 1px solid #2fbf71; border-left-width: 4px; border-radius: 10px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
-  font-size: 14px; line-height: 1.4;
-  transform: translate(-50%, 0);
-  animation: toastIn 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2), toastOut 0.4s ease 5.2s forwards;
-}
-.toast-icon {
-  flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: #2fbf71; color: #08140d; font-weight: 700; font-size: 14px;
-}
-.toast-text { flex: 1; }
-.toast-close { flex: none; border: 0; background: transparent; color: var(--text-muted); font-size: 20px; line-height: 1; cursor: pointer; padding: 0 4px; }
-.toast-close:hover { color: var(--text); }
-@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -14px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@keyframes toastOut { to { opacity: 0; transform: translate(-50%, -10px); visibility: hidden; } }
-@media (prefers-reduced-motion: reduce) { .toast { animation: toastOut 0.01s ease 6s forwards; } }
-
-.login-error-link {
-  display: block; margin: -8px auto 16px; padding: 4px 8px; border: 0; background: none;
-  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent); cursor: pointer; text-decoration: underline;
-}
-.login-error-link[hidden] { display: none; }
+  const btn = document.getElementById("langToggle");
+  if (btn) {
+    btn.addEventListener("click", () => {
+      const current = localStorage.getItem(STORAGE_KEY) || "id";
+      const next = current === "id" ? "en" : "id";
+      localStorage.setItem(STORAGE_KEY, next);
+      applyLang(next);
+    });
+  }
+})();
