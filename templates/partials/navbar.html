@@ -5,7 +5,7 @@
   <button type="button" class="toast-close" aria-label="Tutup">×</button>
 </div>
 {% endif %}
-<header class="navbar">
+<header class="navbar" data-auth="{{ 'user' if current_user else 'guest' }}">
   <a href="/" class="brand">
     <span class="brand-badge">▦</span>
     <span class="brand-text">
@@ -23,6 +23,7 @@
   </nav>
 
   <div class="navbar-tools">
+    <div class="navbar-auth" id="navAuth">
     {% if current_user %}
     {% set display_name = current_user.name or current_user.username or current_user.email %}
     <details class="user-menu">
@@ -52,6 +53,7 @@
     <a class="btn nav-login" href="/login" data-i18n="nav.login">Masuk</a>
     <a class="btn btn-primary nav-login nav-register" href="/login?mode=register" data-i18n="nav.register">Daftar</a>
     {% endif %}
+    </div>
     <button class="toggle-btn" id="langToggle" type="button" aria-label="Ganti bahasa">
       <span class="lang-current" id="langCurrent">ID</span>
     </button>
