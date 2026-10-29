@@ -50,6 +50,8 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT",
+    "UPDATE users SET provider = CASE WHEN password_hash IS NOT NULL THEN 'manual' ELSE 'google' END WHERE provider IS NULL",
 )
 _schema_ready = False
 
@@ -148,6 +150,7 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL;
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT;
         """
     )
     conn.commit()
@@ -157,20 +160,67 @@ def init_db():
 
 # ---------- Users (login Google) ----------
 
+def username_from_email(email):
+    """Username dari bagian sebelum '@' di email (mis. budi.santoso+kerja@gmail.com -> budi.santoso).
+    Disesuaikan dgn aturan username aplikasi: huruf kecil/angka/titik/garis bawah, 3-30 karakter."""
+    import re as _re
+    local = (email or "").split("@")[0].split("+")[0].lower()
+    base = _re.sub(r"[^a-z0-9_.]", "", local).strip("._")
+    if len(base) < 3:
+        base = "user" + base
+    return base[:24]  # sisakan ruang untuk angka pembeda bila bentrok
+
+
+def assign_username(user_id, email):
+    """Isi username akun (yang masih kosong) dari email. Bila sudah dipakai orang lain,
+    ditambah angka: budi, budi2, budi3, ... Aman dari balapan karena dijaga indeks unik di database."""
+    import secrets as _secrets
+    base = username_from_email(email)
+    candidates = [base] + [f"{base}{n}" for n in range(2, 60)] + [f"{base}{_secrets.token_hex(3)}"]
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        for cand in candidates:
+            try:
+                cur.execute(
+                    "UPDATE users SET username=%s WHERE id=%s AND username IS NULL RETURNING username",
+                    (cand, user_id),
+                )
+                row = cur.fetchone()
+                conn.commit()
+                if row:
+                    return row[0]
+                # tidak ada baris yang berubah: username sudah terisi (mis. oleh login lain bersamaan)
+                cur.execute("SELECT username FROM users WHERE id=%s", (user_id,))
+                got = cur.fetchone()
+                return got[0] if got else None
+            except Exception as e:
+                conn.rollback()
+                if getattr(e, "pgcode", None) != "23505":  # 23505 = unique_violation -> coba kandidat berikutnya
+                    raise
+        return None
+    finally:
+        cur.close()
+        conn.close()
+
+
 def upsert_user(google_sub, email, name, picture):
-    """Buat akun baru (daftar) atau perbarui profil akun yang sudah ada (masuk).
-    Identitas dikunci ke `sub` Google, bukan email, karena email bisa berubah."""
+    """Daftar lewat Google bila akun belum ada, atau perbarui profil bila sudah ada (masuk).
+    Identitas dikunci ke `sub` Google, bukan email, karena email bisa berubah.
+
+    Akun Google: provider='google', username otomatis dari email, password_hash SENGAJA kosong
+    (NULL) karena kata sandinya dikelola Google; user selalu masuk lewat tombol Google."""
     import uuid as _uuid
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        INSERT INTO users (id, google_sub, email, name, picture)
-        VALUES (%s,%s,%s,%s,%s)
+        INSERT INTO users (id, google_sub, email, name, picture, provider)
+        VALUES (%s,%s,%s,%s,%s,'google')
         ON CONFLICT (google_sub) DO UPDATE
            SET email=EXCLUDED.email, name=EXCLUDED.name, picture=EXCLUDED.picture,
-               last_login_at=now()
-        RETURNING id, email, name, picture, (xmax = 0) AS is_new
+               provider=COALESCE(users.provider, 'google'), last_login_at=now()
+        RETURNING id, username, email, name, picture, (xmax = 0) AS is_new
         """,
         (str(_uuid.uuid4()), google_sub, email, name, picture),
     )
@@ -178,6 +228,8 @@ def upsert_user(google_sub, email, name, picture):
     conn.commit()
     cur.close()
     conn.close()
+    if not row.get("username"):  # akun baru, atau akun Google lama yang belum punya username
+        row["username"] = assign_username(row["id"], email)
     return row
 
 
@@ -222,8 +274,8 @@ def create_manual_user(username, name, email, password_hash):
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        INSERT INTO users (id, username, email, name, password_hash)
-        VALUES (%s,%s,%s,%s,%s)
+        INSERT INTO users (id, username, email, name, password_hash, provider)
+        VALUES (%s,%s,%s,%s,%s,'manual')
         ON CONFLICT DO NOTHING
         RETURNING id, username, email, name, picture
         """,
