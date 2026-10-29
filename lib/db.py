@@ -251,7 +251,12 @@ def upsert_user(google_sub, email, name, picture):
 def get_user(user_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT id, username, email, name, picture FROM users WHERE id=%s", (user_id,))
+    cur.execute(
+        "SELECT id, username, email, name, picture, provider, "
+        "(password_hash IS NOT NULL AND password_hash NOT LIKE '!%%') AS has_password "
+        "FROM users WHERE id=%s",
+        (user_id,),
+    )
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -270,8 +275,8 @@ def find_register_conflict(username, email):
         code = "username_taken"
     else:
         cur.execute(
-            "SELECT provider = 'manual' FROM users WHERE lower(email)=%s "
-            "ORDER BY (provider = 'manual') DESC NULLS LAST LIMIT 1",
+            "SELECT (password_hash IS NOT NULL AND password_hash NOT LIKE '!%%') FROM users WHERE lower(email)=%s "
+            "ORDER BY (password_hash IS NOT NULL AND password_hash NOT LIKE '!%%') DESC LIMIT 1",
             (email,),
         )
         row = cur.fetchone()
@@ -305,7 +310,8 @@ def create_manual_user(username, name, email, password_hash):
 
 def get_user_for_login(identifier):
     """Cari akun manual untuk login berdasarkan username ATAU email (identifier berisi '@' = email).
-    Hanya akun manual yang punya kata sandi asli; akun Google tidak pernah cocok di sini.
+    Hanya akun yang punya kata sandi ASLI (manual, atau akun Google yang membuat kata sandi di Pengaturan);
+    akun Google tanpa kata sandi (penanda "!...") tidak pernah cocok di sini.
     Menyertakan status kunci akun."""
     by_email = "@" in identifier
     conn = get_conn()
@@ -316,14 +322,65 @@ def get_user_for_login(identifier):
                (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
                CEIL(GREATEST(EXTRACT(EPOCH FROM (locked_until - now())), 0) / 60.0)::int AS lock_minutes
         FROM users
-        WHERE provider = 'manual' AND password_hash IS NOT NULL AND password_hash NOT LIKE '!%%'
-          AND """ + ("lower(email)=%s" if by_email else "username=%s"),
+        WHERE password_hash IS NOT NULL AND password_hash NOT LIKE '!%%'
+          AND """ + ("lower(email)=%s" if by_email else "username=%s") + """
+        ORDER BY (provider = 'manual') DESC LIMIT 1""",
         (identifier,),
     )
     row = cur.fetchone()
     cur.close()
     conn.close()
     return dict(row) if row else None
+
+
+def update_username(user_id, username):
+    """Ganti username. Mengembalikan False bila sudah dipakai akun lain (dijaga indeks unik)."""
+    conn = get_conn()
+    cur = conn.cursor()
+    try:
+        cur.execute("UPDATE users SET username=%s WHERE id=%s", (username, user_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        if getattr(e, "pgcode", None) == "23505":  # unique_violation
+            return False
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_user_auth(user_id):
+    """Data kredensial akun yang sedang login (untuk ganti kata sandi), termasuk status kunci akun."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute(
+        """
+        SELECT id, username, email, password_hash,
+               (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
+               CEIL(GREATEST(EXTRACT(EPOCH FROM (locked_until - now())), 0) / 60.0)::int AS lock_minutes
+        FROM users WHERE id=%s
+        """,
+        (user_id,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_password(user_id, password_hash):
+    """Simpan kata sandi baru (hash asli). Untuk akun Google ini menggantikan penanda "!google-oauth"."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE users SET password_hash=%s, failed_attempts=0, locked_until=NULL WHERE id=%s",
+        (password_hash, user_id),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def record_login_failure(user_id, max_attempts, lock_minutes):
