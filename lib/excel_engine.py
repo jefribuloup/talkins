@@ -4,6 +4,7 @@ Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'origina
       dan 'working' (identik) ke Neon. Manipulasi selanjutnya HANYA mengubah 'working'.
 """
 import io
+import os
 import re
 import hashlib
 import json
@@ -261,6 +262,99 @@ def ingest_from_url(url, session_id):
         )
 
     return _ingest_bytes(resp.content, filename, session_id, source="url", source_key=fetch_url)
+
+
+# ---------- Ingest dari Google Drive (untuk file > batas body Vercel ±4,5 MB) ----------
+#
+# Alur: browser mengunggah file LANGSUNG ke Google Drive milik user (tidak lewat server Vercel, jadi
+# tidak kena batas 4 MB), lalu mengirim id file + access token Drive ke sini. Server mengunduh
+# filenya dari Drive (hanya baca) dan memprosesnya seperti upload biasa. Token tidak disimpan.
+
+_DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,100}$")
+_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files/"
+_EXCEL_EXTS = (".xlsx", ".xls", ".xlsm")
+
+
+def drive_max_mb():
+    """Batas ukuran file yang diproses dari Drive (MB). Atur lewat env DRIVE_MAX_MB; default 30."""
+    try:
+        return max(5, int(os.environ.get("DRIVE_MAX_MB", "30")))
+    except ValueError:
+        return 30
+
+
+def ingest_from_drive(file_id, access_token, session_id):
+    file_id = (file_id or "").strip()
+    access_token = (access_token or "").strip()
+    if not _DRIVE_ID_RE.match(file_id):
+        raise ValueError("ID file Google Drive tidak valid.")
+    if not access_token or len(access_token) > 4096:
+        raise ValueError("Izin Google Drive tidak ditemukan. Coba unggah ulang dan setujui izin akses.")
+
+    # File Drive yang sama sudah pernah diproses di sesi ini -> minta konfirmasi, jangan unduh lagi
+    source_key = f"drive:{file_id}"
+    dup = db.find_duplicate(session_id, source_key=source_key)
+    if dup:
+        return _duplicate_response(dup)
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    max_bytes = drive_max_mb() * 1024 * 1024
+
+    try:
+        meta = requests.get(
+            _DRIVE_FILES_URL + file_id,
+            params={"fields": "id,name,size,trashed"},
+            headers=headers,
+            timeout=15,
+        )
+    except requests.RequestException:
+        raise ValueError("Tidak bisa menghubungi Google Drive. Coba lagi sebentar lagi.")
+    if meta.status_code in (401, 403):
+        raise ValueError("Izin Google Drive ditolak atau sudah habis. Coba unggah ulang dan setujui izin akses.")
+    if meta.status_code == 404:
+        raise ValueError("File tidak ditemukan di Google Drive.")
+    if not meta.ok:
+        raise ValueError("Google Drive belum bisa membuka file ini. Coba lagi sebentar lagi.")
+
+    info = meta.json()
+    name = info.get("name") or ""
+    if info.get("trashed"):
+        raise ValueError("File ini ada di tempat sampah Google Drive.")
+    if not name.lower().endswith(_EXCEL_EXTS):
+        raise ValueError("Format harus .xlsx / .xls / .xlsm")
+    try:
+        size = int(info.get("size") or 0)
+    except ValueError:
+        size = 0
+    if size > max_bytes:
+        raise ValueError(f"File terlalu besar untuk diproses (maksimal {drive_max_mb()} MB).")
+
+    try:
+        resp = requests.get(
+            _DRIVE_FILES_URL + file_id,
+            params={"alt": "media"},
+            headers=headers,
+            stream=True,
+            timeout=(10, 60),
+        )
+    except requests.RequestException:
+        raise ValueError("Gagal mengunduh file dari Google Drive. Coba lagi sebentar lagi.")
+    if not resp.ok:
+        raise ValueError("Gagal mengunduh file dari Google Drive. Coba lagi sebentar lagi.")
+
+    chunks, total = [], 0
+    try:
+        for chunk in resp.iter_content(chunk_size=1024 * 256):
+            total += len(chunk)
+            if total > max_bytes:  # jaga-jaga bila metadata ukuran tidak akurat
+                raise ValueError(f"File terlalu besar untuk diproses (maksimal {drive_max_mb()} MB).")
+            chunks.append(chunk)
+    except requests.RequestException:
+        raise ValueError("Unduhan dari Google Drive terputus. Coba lagi sebentar lagi.")
+    finally:
+        resp.close()
+
+    return _ingest_bytes(b"".join(chunks), name, session_id, source="drive", source_key=source_key)
 
 
 # ---------- Logic inti ingest, dipakai baik oleh upload file maupun link ----------
