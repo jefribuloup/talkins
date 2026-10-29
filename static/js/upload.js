@@ -17,8 +17,8 @@
   }
 
   function setStatus(msg, isError) {
-    status.textContent = msg || "";
-    status.classList.toggle("error", !!isError);
+    // Status tampil di bawah kotak dropzone (bukan di dalamnya); error berupa kartu tersendiri
+    window.MejaHttp.renderStatus(status, msg, isError);
   }
 
   async function askConfirm(opts) {
