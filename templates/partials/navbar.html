@@ -1,7 +1,7 @@
-{% if flash_notice in ("registered", "login") %}
+{% if flash_notice in ("registered", "login", "logout") %}
 <div class="toast toast-success" role="status" aria-live="polite">
   <span class="toast-icon" aria-hidden="true">✓</span>
-  <span class="toast-text" data-i18n="notice.{{ flash_notice }}">{% if flash_notice == "registered" %}Pendaftaran berhasil! Selamat datang di Meja Data.{% else %}Berhasil masuk. Selamat datang kembali!{% endif %}</span>
+  <span class="toast-text" data-i18n="notice.{{ flash_notice }}">{% if flash_notice == "registered" %}Pendaftaran berhasil! Selamat datang di Meja Data.{% elif flash_notice == "logout" %}Kamu sudah keluar. Sampai jumpa lagi!{% else %}Berhasil masuk. Selamat datang kembali!{% endif %}</span>
   <button type="button" class="toast-close" aria-label="Tutup">×</button>
 </div>
 {% endif %}
