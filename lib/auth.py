@@ -464,6 +464,10 @@ def register_routes(app):
     def auth_logout():
         session.clear()
         session["session_id"] = str(uuid.uuid4())  # kembali jadi tamu baru
+        session["notice"] = "logout"
+        # Dipanggil lewat fetch (tanpa reload) -> JSON; form biasa (tanpa JS) -> pengalihan seperti dulu
+        if "application/json" in request.headers.get("Accept", ""):
+            return jsonify({"ok": True, "redirect": "/"})
         return redirect("/")
 
     @app.route("/api/me")
