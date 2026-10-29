@@ -227,6 +227,8 @@ def register_routes(app):
             return _json_error("locked", 429, minutes=max(int(user.get("lock_minutes") or 1), 1))
 
         stored = user.get("password_hash") if user else None
+        if stored and stored.startswith("!"):
+            stored = None  # penanda "tanpa kata sandi" (akun Google), bukan hash asli
         ok = check_password_hash(stored or _DUMMY_HASH, password[:PASSWORD_MAX]) and bool(stored)
         if not ok:
             if user and stored:
