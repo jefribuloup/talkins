@@ -45,21 +45,29 @@
 
   async function uploadFile(file) {
     if (!file || uploading) return;
-    const tooBig = window.MejaHttp && window.MejaHttp.checkUploadSize(file);
-    if (tooBig) {
-      setStatus(tooBig, true);
-      return;
+    // File di atas batas server Vercel (±4 MB) diunggah lewat Google Drive
+    const large = !!(window.MejaDrive && window.MejaDrive.isLarge(file));
+    if (!large) {
+      const tooBig = window.MejaHttp && window.MejaHttp.checkUploadSize(file);
+      if (tooBig) {
+        setStatus(tooBig, true);
+        return;
+      }
     }
     uploading = true;
     setStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
-    const form = new FormData();
-    form.append("file", file);
-
     try {
-      const res = await fetch("/api/upload", { method: "POST", body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Upload gagal");
+      let data;
+      if (large) {
+        data = await window.MejaDrive.uploadAndIngest(file, (msg) => setStatus(msg, false));
+      } else {
+        const form = new FormData();
+        form.append("file", file);
+        const res = await fetch("/api/upload", { method: "POST", body: form });
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Upload gagal");
+      }
       if (data.duplicate) {
         setStatus("", false);
         askOpenExisting(data);
