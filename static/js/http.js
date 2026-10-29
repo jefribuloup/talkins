@@ -9,6 +9,8 @@
  *
  * Cara kerja: window.fetch dibungkus sekali (dimuat PERTAMA di tiap halaman). Kalau body balasan
  * bukan JSON, `res.json()` melempar Error berisi kalimat ramah sesuai status HTTP & bahasa aktif.
+ * Kode lama (`const data = await res.json(); if (!res.ok) throw new Error(data.error ...)`) tetap
+ * jalan tanpa diubah, dan `err.message` yang ditampilkan ke user selalu pesan yang mudah dipahami.
  */
 (function () {
   if (window.MejaHttp) return; // router bisa memuat ulang script saat pindah halaman
@@ -34,6 +36,8 @@
       generic: "Maaf, permintaanmu belum berhasil diproses. Coba lagi sebentar lagi.",
       offline: "Koneksi internet sedang terputus. Periksa jaringanmu lalu coba lagi.",
       network: "Tidak bisa terhubung ke server. Periksa koneksi internetmu lalu coba lagi.",
+      errorTitle: "Upload belum berhasil",
+      close: "Tutup pesan",
     },
     en: {
       tooLarge:
@@ -53,6 +57,8 @@
       generic: "Sorry, we couldn't process your request. Please try again in a moment.",
       offline: "Your internet connection is down. Check your network and try again.",
       network: "Can't reach the server. Check your internet connection and try again.",
+      errorTitle: "Upload didn't go through",
+      close: "Dismiss message",
     },
   };
 
@@ -92,7 +98,8 @@
     return msg("generic");
   }
 
-  // Cek ukuran file SEBELUM dikirim. Mengembalikan pesan ramah kalau terlalu besar, atau "" kalau aman.
+  // Cek ukuran file SEBELUM dikirim -> user langsung dapat penjelasan, tanpa menunggu upload gagal.
+  // Mengembalikan pesan ramah (string) kalau terlalu besar, atau "" kalau aman.
   function checkUploadSize(file) {
     if (!file || typeof file.size !== "number") return "";
     var limit = maxMb() * 1024 * 1024;
@@ -102,6 +109,53 @@
       size: (file.size / (1024 * 1024)).toFixed(1),
       mb: maxMb(),
     });
+  }
+
+  // Tampilkan status upload DI LUAR kotak dropzone (elemen `el` ada tepat di bawah kotak).
+  // - error  -> kartu error (ikon, judul, pesan ramah, tombol tutup)
+  // - lainnya (memproses / berhasil) -> satu baris teks biasa
+  // Pesan dimasukkan lewat textContent (bukan innerHTML) supaya aman dari injeksi HTML.
+  function renderStatus(el, message, isError) {
+    if (!el) return;
+    el.textContent = "";
+    el.classList.remove("is-error");
+    if (!message) return;
+    if (!isError) {
+      el.textContent = message;
+      return;
+    }
+    el.classList.add("is-error");
+
+    var icon = document.createElement("span");
+    icon.className = "upload-error-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.textContent = "!";
+
+    var title = document.createElement("strong");
+    title.className = "upload-error-title";
+    title.textContent = msg("errorTitle");
+
+    var text = document.createElement("span");
+    text.className = "upload-error-text";
+    text.textContent = message;
+
+    var body = document.createElement("div");
+    body.className = "upload-error-body";
+    body.appendChild(title);
+    body.appendChild(text);
+
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "upload-error-close";
+    close.setAttribute("aria-label", msg("close"));
+    close.textContent = "×";
+    close.addEventListener("click", function () {
+      renderStatus(el, "", false);
+    });
+
+    el.appendChild(icon);
+    el.appendChild(body);
+    el.appendChild(close);
   }
 
   var nativeFetch = window.fetch;
@@ -126,5 +180,10 @@
     };
   }
 
-  window.MejaHttp = { forStatus: forStatus, checkUploadSize: checkUploadSize, message: msg };
+  window.MejaHttp = {
+    forStatus: forStatus,
+    checkUploadSize: checkUploadSize,
+    message: msg,
+    renderStatus: renderStatus,
+  };
 })();
