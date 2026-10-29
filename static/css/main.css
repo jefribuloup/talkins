@@ -299,6 +299,73 @@ a { color: inherit; }
   margin: 8px 0 0;
 }
 .dropzone-status.error { color: var(--danger); }
+/* Status upload: tampil DI LUAR kotak dropzone, tepat di bawahnya */
+.upload-status {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--positive);
+  margin: 14px 0 0;
+}
+.upload-status:empty { display: none; }
+
+.upload-status.is-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 14px 14px 16px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--panel);
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  border: 1px solid var(--danger);
+  border-left-width: 4px;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+  animation: uploadErrorIn 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+.upload-error-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--bg);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 26px;
+  text-align: center;
+}
+.upload-error-body { flex: 1; min-width: 0; }
+.upload-error-title {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--danger);
+  margin-bottom: 2px;
+}
+.upload-error-text { display: block; overflow-wrap: anywhere; }
+.upload-error-close {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+}
+.upload-error-close:hover { color: var(--text); }
+@keyframes uploadErrorIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .upload-status.is-error { animation: none; }
+}
 
 /* ---------- Dialog konfirmasi (di luar popup, melayang di atas semuanya) ---------- */
 
