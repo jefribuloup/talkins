@@ -35,6 +35,7 @@ from lib import db
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 DEFAULT_SECRET = "dev-secret-change-me"
 
 # Login manual (username + kata sandi)
@@ -129,6 +130,29 @@ def _json_error(code, status, **extra):
     return jsonify(dict(error=code, **extra)), status
 
 
+def _google_finish(profile):
+    """Selesaikan masuk/daftar dari profil Google yang sudah terverifikasi (userinfo).
+    Akun dibuat bila belum ada. Mengembalikan (kode_error | None, is_new)."""
+    sub, email = profile.get("sub"), (profile.get("email") or "").lower()
+    if not sub or not email:
+        return "failed", False
+    if not profile.get("email_verified"):
+        return "email_unverified", False
+    try:
+        user = db.upsert_user(
+            google_sub=sub,
+            email=email,
+            name=profile.get("name") or email.split("@")[0],
+            picture=profile.get("picture"),
+        )
+        # upsert_user sudah membuat akun bila belum ada; is_new=True berarti baru saja didaftarkan
+        is_new = bool(user.get("is_new"))
+        _login(user, adopt_from=session.get("session_id"), notice="registered" if is_new else "login")
+    except Exception:
+        return "failed", False
+    return None, is_new
+
+
 def _fail(code):
     return redirect("/login?" + urlencode({"error": code}))
 
@@ -169,7 +193,10 @@ def register_routes(app):
         if current_user():
             return redirect(_safe_next(request.args.get("next")))
         return render_template(
-            "login.html", next_url=_safe_next(request.args.get("next")), csrf_token=_csrf_token()
+            "login.html",
+            next_url=_safe_next(request.args.get("next")),
+            csrf_token=_csrf_token(),
+            google_client_id=_client_id(),
         )
 
     # ---------- Pengaturan akun: ganti username & kata sandi ----------
@@ -345,6 +372,49 @@ def register_routes(app):
         }
         return redirect(GOOGLE_AUTH_URL + "?" + urlencode(params))
 
+    @app.route("/auth/google/token", methods=["POST"])
+    def auth_google_token():
+        """Masuk/daftar lewat popup Google (Google Identity Services) TANPA pindah halaman.
+        Browser mengirim access token; server memastikan token itu diterbitkan UNTUK aplikasi ini
+        (cek `aud` ke tokeninfo; tanpa ini token dari aplikasi lain bisa dipakai menyamar), lalu
+        mengambil profil dari userinfo dan memakai alur yang sama dengan callback."""
+        if not _csrf_ok():
+            return _json_error("csrf", 403)
+        if not _client_id():
+            return _json_error("not_configured", 503)
+        if app.secret_key == DEFAULT_SECRET and os.environ.get("VERCEL"):
+            return _json_error("not_configured", 503)
+
+        data = request.get_json(silent=True) or {}
+        access_token = str(data.get("access_token", "")).strip()
+        if not access_token or len(access_token) > 4096:
+            return _json_error("failed", 400)
+
+        try:
+            ti = requests.get(GOOGLE_TOKENINFO_URL, params={"access_token": access_token}, timeout=10)
+            if ti.status_code != 200:
+                return _json_error("failed", 401)
+            tinfo = ti.json()
+            aud = str(tinfo.get("aud") or tinfo.get("azp") or "")
+            if not aud or not secrets.compare_digest(aud, _client_id()):
+                return _json_error("failed", 401)  # token milik aplikasi lain
+            info = requests.get(
+                GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}, timeout=10
+            )
+            info.raise_for_status()
+            profile = info.json()
+        except Exception:
+            return _json_error("failed", 502)
+
+        code_err, is_new = _google_finish(profile)
+        if code_err:
+            return _json_error(code_err, 403 if code_err == "email_unverified" else 500)
+        return jsonify({
+            "ok": True,
+            "is_new": is_new,
+            "redirect": "/dashboard" if is_new else _safe_next(data.get("next")),
+        })
+
     @app.route("/auth/google/callback")
     def auth_google_callback():
         if request.args.get("error"):
@@ -385,24 +455,9 @@ def register_routes(app):
         except Exception:
             return _fail("failed")
 
-        sub, email = profile.get("sub"), (profile.get("email") or "").lower()
-        if not sub or not email:
-            return _fail("failed")
-        if not profile.get("email_verified"):
-            return _fail("email_unverified")
-
-        try:
-            user = db.upsert_user(
-                google_sub=sub,
-                email=email,
-                name=profile.get("name") or email.split("@")[0],
-                picture=profile.get("picture"),
-            )
-            # upsert_user sudah membuat akun bila belum ada; is_new=True berarti baru saja didaftarkan
-            is_new = bool(user.get("is_new"))
-            _login(user, adopt_from=session.get("session_id"), notice="registered" if is_new else "login")
-        except Exception:
-            return _fail("failed")
+        code_err, is_new = _google_finish(profile)
+        if code_err:
+            return _fail(code_err)
         return redirect("/dashboard" if is_new else next_url)
 
     @app.route("/auth/logout", methods=["POST"])
