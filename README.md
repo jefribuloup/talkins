@@ -374,4 +374,7 @@ Setup satu kali di Google Cloud Console (project yang sama dengan login Google):
    https://DOMAIN-KAMU dan http://localhost:5000 (untuk uji lokal).
 3. OAuth consent screen -> Scopes: tambahkan .../auth/drive.file (hanya file yang dibuat aplikasi ini).
 Memakai GOOGLE_CLIENT_ID yang sudah ada; tidak perlu client secret tambahan di browser.
+
+Catatan: masuk/daftar dengan Google tanpa reload halaman (popup) juga memakai "Authorized JavaScript origins"
+di atas. Bila belum diisi, tombol Google otomatis memakai alur pengalihan biasa (halaman berpindah/reload).
 File tetap tersimpan di Drive user setelah diproses (tidak dihapus otomatis).
