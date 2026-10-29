@@ -10,6 +10,8 @@ import sys
 import uuid
 
 from flask import Flask, request, jsonify, render_template, session, Response
+from markupsafe import escape
+from werkzeug.exceptions import HTTPException
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
@@ -29,6 +31,9 @@ app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
 
 MAX_UPLOAD_MB = 20
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
+# Di Vercel, body request serverless dibatasi ±4,5 MB (platform menolak sebelum sampai ke Flask),
+# jadi batas yang dikomunikasikan ke user di sana 4 MB.
+UPLOAD_LIMIT_MB = 4 if os.environ.get("VERCEL") else MAX_UPLOAD_MB
 
 # Saran rumus untuk sel yang dipilih di tab Rumus: POST /api/formula-suggest
 formula_engine.register_routes(app)
@@ -41,6 +46,77 @@ auth.register_routes(app)
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
+
+
+# ---------- Pesan error ramah (bukan teks teknis) ----------
+
+GENERIC_ERROR = "Maaf, terjadi kendala di server. Coba lagi sebentar lagi. Kalau masih berulang, hubungi pengembang."
+
+FRIENDLY_HTTP = {
+    400: "Permintaan belum bisa diproses. Periksa isiannya lalu coba lagi.",
+    401: "Sesi kamu sudah habis. Silakan masuk lagi.",
+    403: "Kamu tidak punya akses ke halaman atau data ini.",
+    404: "Halaman atau data yang kamu cari tidak ditemukan. Mungkin sudah dihapus atau alamatnya salah.",
+    405: "Aksi ini tidak tersedia di alamat tersebut.",
+    413: f"File terlalu besar. Kecilkan dulu ukurannya (maksimal sekitar {UPLOAD_LIMIT_MB} MB) atau unggah lewat link.",
+    415: "Format data yang dikirim tidak dikenali. Muat ulang halaman lalu coba lagi.",
+    429: "Terlalu banyak permintaan dalam waktu singkat. Tunggu sebentar lalu coba lagi.",
+}
+
+
+@app.context_processor
+def inject_limits():
+    return {"max_upload_mb": UPLOAD_LIMIT_MB}
+
+
+def _wants_json():
+    return request.path.startswith(("/api/", "/auth/"))
+
+
+def _error_page(msg):
+    return (
+        "<!doctype html><html lang='id'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<link rel='icon' href='/static/favicon.svg' type='image/svg+xml'>"
+        "<title>Ups — Meja Data</title></head>"
+        "<body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;"
+        "padding:0 1.25rem;text-align:center;color:#222\">"
+        "<h1 style='font-size:1.4rem'>Ups, ada kendala</h1>"
+        f"<p>{escape(msg)}</p><p><a href='/'>Kembali ke beranda</a></p></body></html>"
+    )
+
+
+def _respond_error(code, msg):
+    if _wants_json():
+        return jsonify({"error": msg}), code
+    return _error_page(msg), code
+
+
+@app.errorhandler(HTTPException)
+def handle_http_error(e):
+    code = e.code or 500
+    default = GENERIC_ERROR if code >= 500 else FRIENDLY_HTTP[400]
+    return _respond_error(code, FRIENDLY_HTTP.get(code, default))
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    app.logger.exception("Error tak terduga: %s", e)
+    return _respond_error(500, GENERIC_ERROR)
+
+
+def _error_response(e, default, status=500):
+    """ValueError = pesan yang memang ditulis untuk user di lib/ -> tampilkan apa adanya (400).
+    Error lain (teknis) -> dicatat di log server, user hanya melihat pesan `default` yang ramah."""
+    if isinstance(e, ValueError):
+        return jsonify({"error": str(e)}), 400
+    app.logger.exception("Error: %s", e)
+    return jsonify({"error": default}), status
+
+
+@app.route("/favicon.ico")
+def favicon():
+    return Response(status=204)  # ikon sebenarnya dipasang lewat <link rel="icon"> di template
 
 
 # ---------- Halaman ----------
@@ -71,19 +147,23 @@ def upload():
     try:
         meta = excel_engine.ingest_file(f, session_id)
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return _error_response(
+            e, "File belum bisa dibaca. Pastikan formatnya .xlsx/.xls/.xlsm, tidak rusak, dan tidak diberi kata sandi."
+        )
     # 200 + duplicate=true -> file sudah pernah diunggah, frontend minta konfirmasi user
     return jsonify(meta), (200 if meta.get("duplicate") else 201)
 
 
 @app.route("/api/upload-url", methods=["POST"])
 def upload_url():
-    url = (request.json or {}).get("url", "")
+    url = (request.get_json(silent=True) or {}).get("url", "")
     session_id = session["session_id"]
     try:
         meta = excel_engine.ingest_from_url(url, session_id)
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return _error_response(
+            e, "Link belum bisa dibuka. Pastikan link-nya benar dan filenya bisa diakses publik, lalu coba lagi."
+        )
     return jsonify(meta), (200 if meta.get("duplicate") else 201)
 
 
@@ -134,11 +214,11 @@ def recap(file_id):
 
 @app.route("/api/files/<file_id>/manipulate", methods=["POST"])
 def manipulate(file_id):
-    op = request.json  # contoh: {"action": "drop_na", "sheet": "Sheet1", "columns": [...]}
+    op = request.get_json(silent=True) or {}  # contoh: {"action": "drop_na", "sheet": "Sheet1", "columns": [...]}
     try:
         result = excel_engine.apply_operation(file_id, op)
     except Exception as e:
-        return jsonify({"error": str(e)}), 400
+        return _error_response(e, "Aksi pada data belum berhasil dijalankan. Coba lagi atau pilih aksi lain.")
     return jsonify(result)
 
 
@@ -157,13 +237,18 @@ def download_working_copy(file_id):
 
 @app.route("/api/files/<file_id>/chat", methods=["POST"])
 def chat(file_id):
-    message = request.json.get("message", "")
-    lang = request.json.get("lang", "id")  # bahasa antarmuka aktif (id/en)
+    body = request.get_json(silent=True) or {}
+    message = (body.get("message") or "").strip()
+    lang = body.get("lang", "id")  # bahasa antarmuka aktif (id/en)
+    if not message:
+        return jsonify({"error": "Tulis pertanyaanmu dulu, lalu kirim lagi."}), 400
     session_id = session["session_id"]
     try:
         reply = chat_engine.ask(session_id, file_id, message, lang)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _error_response(
+            e, "Asisten AI sedang sibuk atau ada gangguan sementara. Tunggu beberapa saat lalu coba lagi.", 503
+        )
     return jsonify(reply)
 
 
@@ -179,9 +264,9 @@ def chat_history(file_id):
 def export_slides(file_id):
     """Susun deck slide dari data (cepat, tanpa AI). Body: {topic, sheet, lang, theme}."""
     try:
-        deck = slide_engine.build_deck(file_id, request.json or {})
+        deck = slide_engine.build_deck(file_id, request.get_json(silent=True) or {})
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _error_response(e, "Slide belum berhasil dibuat. Coba lagi sebentar lagi.")
     return jsonify({"deck": deck})
 
 
@@ -189,22 +274,22 @@ def export_slides(file_id):
 def polish_slides(file_id):
     """AI menulis ulang judul & poin slide (opsional, panggilan terpisah supaya deck tampil dulu)."""
     try:
-        return jsonify(slide_engine.polish_deck((request.json or {}).get("deck") or {}))
+        return jsonify(slide_engine.polish_deck((request.get_json(silent=True) or {}).get("deck") or {}))
     except Exception as e:
-        return jsonify({"error": str(e)}), 502
+        return _error_response(e, "Asisten AI belum bisa merapikan slide sekarang. Slide aslinya tetap aman, coba lagi nanti.", 502)
 
 
 @app.route("/api/files/<file_id>/export/slides.pptx", methods=["POST"])
 def download_pptx(file_id):
     """Ekspor deck (termasuk hasil edit user) ke file .pptx asli dengan grafik native."""
-    body = request.json or {}
+    body = request.get_json(silent=True) or {}
     deck = body.get("deck") or {}
     if not deck.get("slides"):
-        return jsonify({"error": "Deck kosong"}), 400
+        return jsonify({"error": "Slide masih kosong, belum ada yang bisa diunduh."}), 400
     try:
         data = slide_engine.render_pptx(deck, body.get("theme"))
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return _error_response(e, "File PowerPoint belum berhasil dibuat. Coba lagi sebentar lagi.")
     fname = re.sub(r"[^A-Za-z0-9_.-]+", "_", (deck.get("title") or "slide"))[:60] or "slide"
     return Response(
         data,
