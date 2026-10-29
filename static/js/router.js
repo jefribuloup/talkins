@@ -7,7 +7,7 @@
  * - Kalau ada yang gagal (server error, 404, format tak dikenal), otomatis kembali
  *   ke navigasi biasa supaya user tetap sampai ke halaman tujuan.
  * - Opt-out per link: <a data-no-router>.
- * - API: MejaRouter.go(url)  -> pindah page tanpa reload (fallback ke navigasi biasa)
+ * - API: MejaRouter.go(url, {replace})  -> pindah page tanpa reload (fallback ke navigasi biasa)
  *        MejaRouter.signal   -> AbortSignal milik page aktif; batal otomatis saat pindah page,
  *                               dipakai script page untuk listener global (window/document).
  */
@@ -90,6 +90,28 @@
     });
   }
 
+  // Navbar & footer dipertahankan antar-halaman, tetapi sebagian isinya bergantung pada status login
+  // (menu Dashboard, tombol Masuk/Daftar vs menu akun, kolom "Akun" di footer). Saat status login
+  // berubah (mis. setelah login tanpa reload) bagian itu diganti dari HTML halaman tujuan.
+  // Tombol tema & bahasa tidak disentuh, jadi listener-nya tetap hidup.
+  function syncChrome(doc) {
+    var cur = document.querySelector("header.navbar");
+    var nxt = doc.querySelector("header.navbar");
+    if (!cur || !nxt) return;
+    if (cur.getAttribute("data-auth") === nxt.getAttribute("data-auth")) return;
+
+    var curNav = cur.querySelector(".navbar-nav"), nxtNav = nxt.querySelector(".navbar-nav");
+    if (curNav && nxtNav) curNav.innerHTML = nxtNav.innerHTML;
+
+    var curAuth = cur.querySelector("#navAuth"), nxtAuth = nxt.querySelector("#navAuth");
+    if (curAuth && nxtAuth) curAuth.replaceWith(document.importNode(nxtAuth, true));
+
+    cur.setAttribute("data-auth", nxt.getAttribute("data-auth") || "");
+
+    var f = document.querySelector("footer.site-footer"), nf = doc.querySelector("footer.site-footer");
+    if (f && nf) f.innerHTML = nf.innerHTML;
+  }
+
   function swap(doc, finalUrl, push) {
     // 1) page lama selesai: batalkan listener global miliknya
     window.dispatchEvent(new CustomEvent("mejadata:pageleave"));
@@ -110,6 +132,9 @@
       if (isKeep(el)) return;
       body.insertBefore(document.importNode(el, true), footer || null);
     });
+
+    // 3b) navbar & footer ikut diperbarui bila status login berubah
+    syncChrome(doc);
 
     // 4) judul, atribut data-* body (mis. data-file-id), URL
     if (doc.title) document.title = doc.title;
@@ -157,7 +182,7 @@
     }, Promise.resolve());
   }
 
-  function navigate(url, push) {
+  function navigate(url, push, scrollTop) {
     if (navCtl) navCtl.abort();
     var ctl = (navCtl = new AbortController());
     progress("start");
@@ -184,7 +209,7 @@
         if (ctl.signal.aborted) return;
         swap(doc, finalUrl, push);
         return runPageScripts(doc).then(function () {
-          if (push) window.scrollTo(0, 0);
+          if (push || scrollTop) window.scrollTo(0, 0);
           progress("done");
         });
       })
@@ -207,10 +232,13 @@
   }
 
   window.MejaRouter = {
-    go: function (url) {
+    // opts.replace = true: ganti entri riwayat saat ini (bukan menambah), mis. setelah login
+    // supaya tombol Back tidak kembali ke halaman login.
+    go: function (url, opts) {
       var u = new URL(url, window.location.href);
       if (!supported || u.origin !== window.location.origin) { fallback(u.href); return; }
-      navigate(u.href, true);
+      var replace = !!(opts && opts.replace);
+      navigate(u.href, !replace, replace);
     },
   };
   Object.defineProperty(window.MejaRouter, "signal", { get: function () { return pageCtl.signal; } });
