@@ -665,6 +665,8 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 .login-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 22px; padding: 4px; background: var(--bg); border: 1px solid var(--grid-line); border-radius: 999px; }
 .login-tab { padding: 8px 0; border: 0; border-radius: 999px; background: transparent; color: var(--text-muted); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .login-tab.active { background: var(--accent); color: #111; }
+.login-tab { transition: background-color 0.22s ease, color 0.22s ease; }
+@media (prefers-reduced-motion: reduce) { .login-tab { transition: none; } }
 .login-card h1 { margin: 0 0 8px; font-family: var(--font-display); font-size: 24px; color: var(--text); }
 .login-sub { margin: 0 0 22px; font-size: 14px; line-height: 1.55; color: var(--text-muted); }
 .login-error { margin: 0 0 16px; padding: 10px 12px; font-size: 13px; text-align: left; color: var(--danger); background: rgba(220, 60, 60, 0.08); border: 1px solid var(--danger); border-radius: 6px; }
@@ -710,7 +712,7 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- Form daftar responsif: grid kiri-kanan di desktop & tablet, 1 kolom di mobile ---------- */
 
-.login-card { width: 100%; max-width: 420px; transition: max-width 0.25s ease, padding 0.25s ease; }
+.login-card { width: 100%; max-width: 420px; }
 
 .login-form-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
 .login-form-grid > * { min-width: 0; }              /* cegah input meluap dari kolom */
@@ -747,6 +749,9 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
   .login-card { padding: 24px 18px 20px; }
   .login-form-grid { grid-template-columns: 1fr; gap: 14px; }
 }
+
+/* Area panel Masuk/Daftar: tingginya dianimasikan saat berpindah tab (login.html) */
+.login-stage { position: relative; }
 
 /* ---------- Notifikasi (toast) & tautan daftar ---------- */
 
