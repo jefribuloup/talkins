@@ -17,6 +17,13 @@ DATABASE_URL = (
 )
 
 
+# Isi password_hash untuk akun Google. Bukan hash yang valid -> tidak pernah cocok dengan kata sandi
+# apa pun; awalan "!" = akun terkunci untuk login kata sandi (konvensi Unix). Akun Google masuk
+# hanya lewat tombol Google, kata sandinya dikelola Google. Kalau kelak user membuat kata sandi
+# sendiri, nilai ini diganti hash asli.
+GOOGLE_NO_PASSWORD = "!google-oauth"
+
+
 # Migrasi kolom ringan yang dijalankan otomatis sekali per proses (idempoten).
 # Tujuannya: setiap kali kolom baru ditambah di kode, database Neon menyusul sendiri
 # tanpa harus membuka /api/_init-db manual. Kalau tabel belum ada (DB baru), dilewati
@@ -49,9 +56,13 @@ _SCHEMA_MIGRATIONS = (
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT",
     "UPDATE users SET provider = CASE WHEN password_hash IS NOT NULL THEN 'manual' ELSE 'google' END WHERE provider IS NULL",
+    # Pembeda akun manual vs Google kini kolom `provider` (bukan isi password_hash)
+    "DROP INDEX IF EXISTS idx_users_email_manual",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual_v2 ON users(lower(email)) WHERE provider = 'manual'",
+    # Akun Google lama: isi password_hash dengan penanda "terkunci" (bukan hash asli, tidak bisa dipakai login)
+    "UPDATE users SET password_hash = '" + GOOGLE_NO_PASSWORD + "' WHERE provider = 'google' AND password_hash IS NULL",
 )
 _schema_ready = False
 
@@ -149,8 +160,9 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual ON users(lower(email)) WHERE password_hash IS NOT NULL;
         ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT;
+        DROP INDEX IF EXISTS idx_users_email_manual;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual_v2 ON users(lower(email)) WHERE provider = 'manual';
         """
     )
     conn.commit()
@@ -208,21 +220,24 @@ def upsert_user(google_sub, email, name, picture):
     """Daftar lewat Google bila akun belum ada, atau perbarui profil bila sudah ada (masuk).
     Identitas dikunci ke `sub` Google, bukan email, karena email bisa berubah.
 
-    Akun Google: provider='google', username otomatis dari email, password_hash SENGAJA kosong
-    (NULL) karena kata sandinya dikelola Google; user selalu masuk lewat tombol Google."""
+    Akun Google: provider='google', username otomatis dari email, dan password_hash berisi penanda
+    terkunci (GOOGLE_NO_PASSWORD), bukan hash asli: kata sandinya dikelola Google, user selalu
+    masuk lewat tombol Google."""
     import uuid as _uuid
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
     cur.execute(
         """
-        INSERT INTO users (id, google_sub, email, name, picture, provider)
-        VALUES (%s,%s,%s,%s,%s,'google')
+        INSERT INTO users (id, google_sub, email, name, picture, provider, password_hash)
+        VALUES (%s,%s,%s,%s,%s,'google',%s)
         ON CONFLICT (google_sub) DO UPDATE
            SET email=EXCLUDED.email, name=EXCLUDED.name, picture=EXCLUDED.picture,
-               provider=COALESCE(users.provider, 'google'), last_login_at=now()
+               provider=COALESCE(users.provider, 'google'),
+               password_hash=COALESCE(users.password_hash, EXCLUDED.password_hash),
+               last_login_at=now()
         RETURNING id, username, email, name, picture, (xmax = 0) AS is_new
         """,
-        (str(_uuid.uuid4()), google_sub, email, name, picture),
+        (str(_uuid.uuid4()), google_sub, email, name, picture, GOOGLE_NO_PASSWORD),
     )
     row = dict(cur.fetchone())
     conn.commit()
@@ -255,8 +270,8 @@ def find_register_conflict(username, email):
         code = "username_taken"
     else:
         cur.execute(
-            "SELECT password_hash IS NOT NULL FROM users WHERE lower(email)=%s "
-            "ORDER BY (password_hash IS NOT NULL) DESC LIMIT 1",
+            "SELECT provider = 'manual' FROM users WHERE lower(email)=%s "
+            "ORDER BY (provider = 'manual') DESC NULLS LAST LIMIT 1",
             (email,),
         )
         row = cur.fetchone()
@@ -290,7 +305,7 @@ def create_manual_user(username, name, email, password_hash):
 
 def get_user_for_login(identifier):
     """Cari akun manual untuk login berdasarkan username ATAU email (identifier berisi '@' = email).
-    Hanya akun yang punya kata sandi; akun Google murni tidak pernah cocok di sini.
+    Hanya akun manual yang punya kata sandi asli; akun Google tidak pernah cocok di sini.
     Menyertakan status kunci akun."""
     by_email = "@" in identifier
     conn = get_conn()
@@ -301,7 +316,8 @@ def get_user_for_login(identifier):
                (locked_until IS NOT NULL AND locked_until > now()) AS is_locked,
                CEIL(GREATEST(EXTRACT(EPOCH FROM (locked_until - now())), 0) / 60.0)::int AS lock_minutes
         FROM users
-        WHERE password_hash IS NOT NULL AND """ + ("lower(email)=%s" if by_email else "username=%s"),
+        WHERE provider = 'manual' AND password_hash IS NOT NULL AND password_hash NOT LIKE '!%%'
+          AND """ + ("lower(email)=%s" if by_email else "username=%s"),
         (identifier,),
     )
     row = cur.fetchone()
