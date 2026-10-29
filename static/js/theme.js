@@ -78,3 +78,38 @@
     });
   };
 })();
+
+// ---------- Keluar (logout) tanpa reload ----------
+// Form logout di navbar & footer dikirim lewat fetch, lalu pindah ke beranda via router; navbar/footer
+// otomatis berganti ke tampilan tamu. Tanpa JS / bila gagal, form tetap terkirim biasa (reload penuh).
+(function () {
+  if (window.__mejaLogoutBound) return;
+  window.__mejaLogoutBound = true;
+
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+    if (!form || !form.matches || !form.matches('form[action="/auth/logout"]')) return;
+    e.preventDefault();
+    if (form.dataset.busy) return;
+    form.dataset.busy = "1";
+
+    fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    })
+      .then(function (res) {
+        if (!res.ok) throw new Error("logout");
+        return res.json();
+      })
+      .then(function (data) {
+        var url = (data && data.redirect) || "/";
+        if (window.MejaRouter) window.MejaRouter.go(url, { replace: true });
+        else window.location.href = url;
+      })
+      .catch(function () {
+        form.dataset.busy = "";
+        form.submit(); // cadangan: kirim form biasa (form.submit() tidak memicu event submit lagi)
+      });
+  });
+})();
