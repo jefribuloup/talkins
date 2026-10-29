@@ -38,7 +38,8 @@
       <div class="user-menu-panel">
         <div class="user-menu-head">
           <strong>{{ display_name }}</strong>
-          <small>{{ current_user.email or current_user.username }}</small>
+          {% if current_user.username %}<small>@{{ current_user.username }}</small>{% endif %}
+          {% if current_user.email %}<small>{{ current_user.email }}</small>{% endif %}
         </div>
         <a href="/dashboard" class="user-menu-item" data-i18n="nav.dashboard">Dashboard</a>
         <form method="post" action="/auth/logout">
