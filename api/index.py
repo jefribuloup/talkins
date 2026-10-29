@@ -167,6 +167,31 @@ def upload_url():
     return jsonify(meta), (200 if meta.get("duplicate") else 201)
 
 
+@app.route("/api/drive/config")
+def drive_config():
+    """Konfigurasi unggah file besar via Google Drive (dipakai drive_upload.js).
+    client_id OAuth memang publik; tanpa GOOGLE_CLIENT_ID fitur ini nonaktif."""
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+    return jsonify(
+        {"enabled": bool(client_id), "client_id": client_id, "max_mb": excel_engine.drive_max_mb()}
+    )
+
+
+@app.route("/api/upload-drive", methods=["POST"])
+def upload_drive():
+    """File besar: sudah diunggah browser ke Google Drive user, di sini hanya diproses.
+    Body: {"file_id": "...", "access_token": "..."} (token dipakai sekali untuk mengunduh, tidak disimpan)."""
+    data = request.get_json(silent=True) or {}
+    session_id = session["session_id"]
+    try:
+        meta = excel_engine.ingest_from_drive(data.get("file_id"), data.get("access_token"), session_id)
+    except Exception as e:
+        return _error_response(
+            e, "File dari Google Drive belum bisa diproses. Pastikan formatnya .xlsx/.xls/.xlsm lalu coba lagi."
+        )
+    return jsonify(meta), (200 if meta.get("duplicate") else 201)
+
+
 @app.route("/api/files", methods=["GET"])
 def list_files():
     session_id = session["session_id"]
