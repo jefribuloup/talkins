@@ -154,6 +154,7 @@ env-example.txt (format KEY=value, tinggal copy-paste satu-satu):
   GOOGLE_CLIENT_ID      -> OAuth Client ID (Google Cloud Console)
   GOOGLE_CLIENT_SECRET  -> OAuth Client Secret
   APP_BASE_URL    -> opsional, mis. https://talkins.vercel.app (dasar redirect URI)
+  DRIVE_MAX_MB    -> opsional, batas ukuran file besar via Google Drive (default 30 MB)
   REQUIRE_LOGIN   -> opsional, isi 0 untuk mematikan wajib login (default: AKTIF, tamu hanya bisa buka beranda & halaman login)
 
 Setup login Google: Google Cloud Console -> APIs & Services -> Credentials ->
@@ -360,3 +361,17 @@ Kerjakan berurutan; tiap fase bisa di-deploy sendiri.
   hanya Google Sheets/Drive dengan batas 20MB (lihat "Kontrol biaya, penyimpanan, dan roadmap",
   Fase 0).
 - Belum ada batas pemakaian AI, kuota, maupun masa simpan data; semuanya ada di roadmap di atas.
+
+
+## Unggah file besar (> 4 MB) via Google Drive
+
+Vercel membatasi body request serverless ±4,5 MB, jadi file Excel yang lebih besar diunggah
+browser LANGSUNG ke Google Drive milik user, lalu server hanya mengunduh & memprosesnya.
+
+Setup satu kali di Google Cloud Console (project yang sama dengan login Google):
+1. APIs & Services -> Library -> aktifkan "Google Drive API".
+2. Credentials -> OAuth client ID (Web) -> "Authorized JavaScript origins": tambahkan
+   https://DOMAIN-KAMU dan http://localhost:5000 (untuk uji lokal).
+3. OAuth consent screen -> Scopes: tambahkan .../auth/drive.file (hanya file yang dibuat aplikasi ini).
+Memakai GOOGLE_CLIENT_ID yang sudah ada; tidak perlu client secret tambahan di browser.
+File tetap tersimpan di Drive user setelah diproses (tidak dihapus otomatis).
