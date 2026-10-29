@@ -42,6 +42,7 @@
           {% if current_user.email %}<small>{{ current_user.email }}</small>{% endif %}
         </div>
         <a href="/dashboard" class="user-menu-item" data-i18n="nav.dashboard">Dashboard</a>
+        <a href="/settings" class="user-menu-item" data-i18n="nav.settings">Pengaturan</a>
         <form method="post" action="/auth/logout">
           <button type="submit" class="user-menu-item user-menu-danger" data-i18n="nav.logout">Keluar</button>
         </form>
