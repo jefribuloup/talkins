@@ -78,7 +78,7 @@
 
     <div class="login-divider"><span data-i18n="login.or">atau</span></div>
 
-    <a class="btn-google" id="googleBtn" href="/auth/google?next={{ next_url|urlencode }}" data-no-router>
+    <a class="btn-google" id="googleBtn" href="/auth/google?next={{ next_url|urlencode }}" data-client-id="{{ google_client_id }}" data-no-router>
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/>
         <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/>
@@ -140,6 +140,12 @@
     var card = document.getElementById("loginCard");
     var nextUrl = card.getAttribute("data-next") || "/dashboard";
     var csrf = card.getAttribute("data-csrf") || "";
+
+    // Pindah halaman tanpa reload (router). Entri riwayat login diganti supaya Back tidak kembali ke sini.
+    function goTo(url) {
+      if (window.MejaRouter) window.MejaRouter.go(url, { replace: true });
+      else window.location.href = url;
+    }
 
     function tr(key) {
       return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
@@ -206,7 +212,7 @@
           .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, body: j }; }); })
           .then(function (r) {
             if (r.ok && r.body.redirect) {
-              window.location.href = r.body.redirect; // navigasi penuh agar navbar ikut diperbarui
+              goTo(r.body.redirect); // pindah ke dashboard TANPA reload; navbar/footer diperbarui router
               return;
             }
             showError(r.body.error || "failed", r.body.minutes);
@@ -230,6 +236,66 @@
       if (!/^[a-zA-Z0-9_.]{3,30}$/.test(d.username.trim())) return "username_invalid";
       if (d.password.length < 8) return "password_short";
       if (d.password !== d.confirm) return "password_mismatch";
+    });
+
+    // ---------- Masuk/daftar dengan Google tanpa pindah halaman ----------
+    // Popup Google Identity Services -> token dikirim ke server -> pindah ke dashboard lewat router.
+    // Bila script Google belum siap / diblokir, link biasa (alur pengalihan) tetap berjalan sebagai cadangan.
+    var googleBtn = document.getElementById("googleBtn");
+    var googleClientId = googleBtn.getAttribute("data-client-id") || "";
+    var googleBusy = false;
+
+    if (googleClientId && !(window.google && window.google.accounts)) {
+      var gis = document.createElement("script");
+      gis.src = "https://accounts.google.com/gsi/client";
+      gis.async = true;
+      document.head.appendChild(gis);
+    }
+
+    function googleLabelBusy(on) {
+      googleBusy = on;
+      label.textContent = on ? tr("login.submit.loading") : tr(label.getAttribute("data-i18n"));
+      googleBtn.style.pointerEvents = on ? "none" : "";
+    }
+
+    googleBtn.addEventListener("click", function (e) {
+      var ready = googleClientId && window.google && window.google.accounts && window.google.accounts.oauth2;
+      if (!ready) return; // biarkan link berjalan (alur pengalihan biasa)
+      e.preventDefault();
+      if (googleBusy) return;
+      errEl.hidden = true;
+      goRegister.hidden = true;
+
+      window.google.accounts.oauth2
+        .initTokenClient({
+          client_id: googleClientId,
+          scope: "openid email profile",
+          callback: function (resp) {
+            if (!resp || resp.error || !resp.access_token) {
+              showError(resp && resp.error === "access_denied" ? "access_denied" : "failed");
+              return;
+            }
+            googleLabelBusy(true);
+            fetch("/auth/google/token", {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+              body: JSON.stringify({ access_token: resp.access_token, next: nextUrl }),
+            })
+              .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, body: j }; }); })
+              .then(function (r) {
+                if (r.ok && r.body.redirect) { goTo(r.body.redirect); return; }
+                googleLabelBusy(false);
+                showError(r.body.error || "failed");
+              })
+              .catch(function () { googleLabelBusy(false); showError("network"); });
+          },
+          error_callback: function (err) {
+            // popup ditutup user -> pesan "izin dibatalkan"; kegagalan lain -> pesan umum
+            showError(err && (err.type === "popup_closed" || err.type === "popup_failed_to_open") ? "access_denied" : "failed");
+          },
+        })
+        .requestAccessToken({ prompt: "select_account" });
     });
 
     setMode(params.get("mode") === "register" ? "register" : "login");
