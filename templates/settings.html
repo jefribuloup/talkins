@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="max-upload-mb" content="{{ max_upload_mb }}">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<title>Pengaturan — Meja Data</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+</head>
+<body>
+
+{% include "partials/navbar.html" %}
+
+{% set display_name = current_user.name or current_user.username or current_user.email %}
+<main class="settings" id="settingsRoot" data-csrf="{{ csrf_token }}" data-has-password="{{ 1 if current_user.has_password else 0 }}">
+  <div class="settings-head">
+    <h1 data-i18n="settings.title">Pengaturan akun</h1>
+    <p class="lede" data-i18n="settings.sub">Ubah username dan kata sandimu kapan saja.</p>
+  </div>
+
+  <section class="settings-card settings-account">
+    {% if current_user.picture %}
+    <img class="settings-avatar" src="{{ current_user.picture }}" alt="" referrerpolicy="no-referrer" width="56" height="56">
+    {% else %}
+    <span class="settings-avatar settings-avatar-fallback">{{ (display_name or '?')[:1]|upper }}</span>
+    {% endif %}
+    <div class="settings-account-info">
+      <strong>{{ display_name }}</strong>
+      {% if current_user.email %}<span>{{ current_user.email }}</span>{% endif %}
+    </div>
+    <span class="settings-badge">
+      {% if current_user.provider == 'google' %}<span data-i18n="settings.account.google">Masuk dengan Google</span>
+      {% else %}<span data-i18n="settings.account.manual">Username &amp; kata sandi</span>{% endif %}
+    </span>
+  </section>
+
+  <div class="settings-grid">
+
+    <section class="settings-card">
+      <h2 data-i18n="settings.username.title">Username</h2>
+      <p class="settings-desc" data-i18n="settings.username.desc">Dipakai untuk masuk bersama kata sandi, dan tampil di menu akunmu.</p>
+      <form id="formUsername" class="settings-form" novalidate>
+        <label class="login-field">
+          <span class="login-label" data-i18n="settings.username.label">Username baru</span>
+          <input type="text" name="username" value="{{ current_user.username or '' }}" autocomplete="username" maxlength="30" autocapitalize="none" spellcheck="false" required>
+          <small class="login-hint" data-i18n="login.hint.username">3–30 karakter: huruf kecil, angka, titik, atau garis bawah.</small>
+        </label>
+        <p class="settings-status" role="status" aria-live="polite" hidden></p>
+        <button type="submit" class="btn btn-primary settings-submit" data-i18n="settings.save">Simpan</button>
+      </form>
+    </section>
+
+    <section class="settings-card">
+      {% if current_user.has_password %}
+      <h2 data-i18n="settings.password.changeTitle">Ubah kata sandi</h2>
+      <p class="settings-desc" data-i18n="settings.password.changeDesc">Masukkan kata sandi lamamu untuk memastikan ini benar-benar kamu.</p>
+      {% else %}
+      <h2 data-i18n="settings.password.createTitle">Buat kata sandi</h2>
+      <p class="settings-desc" data-i18n="settings.password.createDesc">Akunmu terdaftar lewat Google dan belum punya kata sandi. Dengan membuatnya, kamu juga bisa masuk memakai username atau email dan kata sandi ini. Masuk dengan Google tetap bisa dipakai.</p>
+      {% endif %}
+      <form id="formPassword" class="settings-form" novalidate>
+        {% if current_user.has_password %}
+        <label class="login-field">
+          <span class="login-label" data-i18n="settings.password.current">Kata sandi lama</span>
+          <span class="pw-wrap"><input type="password" name="current_password" autocomplete="current-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+        </label>
+        {% endif %}
+        <label class="login-field">
+          <span class="login-label" data-i18n="settings.password.new">Kata sandi baru</span>
+          <span class="pw-wrap"><input type="password" name="new_password" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          <small class="login-hint" data-i18n="login.hint.password">Minimal 8 karakter.</small>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.confirm">Ulangi kata sandi</span>
+          <span class="pw-wrap"><input type="password" name="confirm_password" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+        </label>
+        <p class="settings-status" role="status" aria-live="polite" hidden></p>
+        <button type="submit" class="btn btn-primary settings-submit" data-i18n="{{ 'settings.password.saveChange' if current_user.has_password else 'settings.password.saveCreate' }}">{{ 'Ubah kata sandi' if current_user.has_password else 'Buat kata sandi' }}</button>
+      </form>
+    </section>
+
+  </div>
+</main>
+
+{% include "partials/footer.html" %}
+
+<script src="/static/js/http.js"></script>
+<script src="/static/js/preloader.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/router.js"></script>
+<script src="/static/js/settings.js"></script>
+</body>
+</html>
