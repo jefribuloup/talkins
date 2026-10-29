@@ -172,6 +172,85 @@ def register_routes(app):
             "login.html", next_url=_safe_next(request.args.get("next")), csrf_token=_csrf_token()
         )
 
+    # ---------- Pengaturan akun: ganti username & kata sandi ----------
+
+    @app.route("/settings")
+    def settings_page():
+        if not current_user():
+            return redirect("/login?" + urlencode({"next": "/settings"}))
+        return render_template("settings.html", csrf_token=_csrf_token())
+
+    def _settings_guard():
+        """Wajib login + token CSRF. Mengembalikan (user, error_response)."""
+        user = current_user()
+        if not user:
+            return None, _json_error("login_required", 401, login_required=True)
+        if not _csrf_ok():
+            return None, _json_error("csrf", 403)
+        return user, None
+
+    @app.route("/api/settings/username", methods=["POST"])
+    def api_settings_username():
+        user, err = _settings_guard()
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        username = str(data.get("username", "")).strip().lower()
+        if not USERNAME_RE.match(username):
+            return _json_error("username_invalid", 400)
+        if username == (user.get("username") or ""):
+            return jsonify({"ok": True, "username": username, "unchanged": True})
+        try:
+            saved = db.update_username(user["id"], username)
+        except Exception:
+            return _json_error("failed", 500)
+        if not saved:
+            return _json_error("username_taken", 409)
+        return jsonify({"ok": True, "username": username})
+
+    @app.route("/api/settings/password", methods=["POST"])
+    def api_settings_password():
+        user, err = _settings_guard()
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        current = str(data.get("current_password", ""))
+        new = str(data.get("new_password", ""))
+
+        try:
+            info = db.get_user_auth(user["id"]) or {}
+        except Exception:
+            return _json_error("failed", 500)
+        stored = info.get("password_hash") or ""
+        has_password = bool(stored) and not stored.startswith("!")  # "!..." = akun Google tanpa kata sandi
+
+        # Validasi kata sandi baru dulu (murah), supaya salah ketik tidak dihitung sebagai percobaan gagal
+        if len(new) < PASSWORD_MIN:
+            return _json_error("password_short", 400)
+        if len(new) > PASSWORD_MAX:
+            return _json_error("password_long", 400)
+        if new.lower() in ((info.get("username") or "").lower(), (info.get("email") or "").lower()):
+            return _json_error("password_weak", 400)
+
+        if has_password:
+            # Ganti kata sandi wajib menyertakan kata sandi lama; tebakan salah ikut dihitung (kunci akun)
+            if info.get("is_locked"):
+                return _json_error("locked", 429, minutes=max(int(info.get("lock_minutes") or 1), 1))
+            if not current or not check_password_hash(stored, current[:PASSWORD_MAX]):
+                try:
+                    db.record_login_failure(user["id"], MAX_FAILED_ATTEMPTS, LOCK_MINUTES)
+                except Exception:
+                    pass
+                return _json_error("current_wrong", 401)
+            if new == current:
+                return _json_error("password_same", 400)
+
+        try:
+            db.set_password(user["id"], generate_password_hash(new))
+        except Exception:
+            return _json_error("failed", 500)
+        return jsonify({"ok": True, "created": not has_password})
+
     @app.route("/auth/register", methods=["POST"])
     def auth_register():
         if not _csrf_ok():
