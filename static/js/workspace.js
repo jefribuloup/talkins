@@ -2039,6 +2039,11 @@
 
   async function uploadNewFile(file) {
     if (!file || wsUploading) return;
+    const tooBig = window.MejaHttp && window.MejaHttp.checkUploadSize(file);
+    if (tooBig) {
+      setWsStatus(tooBig, true);
+      return;
+    }
     wsUploading = true;
     setWsStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
