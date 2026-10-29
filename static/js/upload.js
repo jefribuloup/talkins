@@ -45,6 +45,11 @@
 
   async function uploadFile(file) {
     if (!file || uploading) return;
+    const tooBig = window.MejaHttp && window.MejaHttp.checkUploadSize(file);
+    if (tooBig) {
+      setStatus(tooBig, true);
+      return;
+    }
     uploading = true;
     setStatus(format(t("dashboard.status.processing"), { name: file.name }), false);
 
