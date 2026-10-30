@@ -1947,10 +1947,74 @@
     else window.location.href = target;
   }
 
+  // ---------- Dropdown riwayat file di toolbar: pilih file -> langsung dibuka ----------
+  const fileSelect = document.getElementById("fileSelect");
+  let fileSelectList = [];
+
+  function renderFileSelect(files) {
+    if (!fileSelect) return;
+    fileSelectList = files;
+    fileSelect.innerHTML = "";
+    if (!files.length) {
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = t("workspace.toolbar.filesEmpty");
+      fileSelect.appendChild(o);
+      fileSelect.disabled = true;
+      return;
+    }
+    const known = files.some((f) => f.id === fileId);
+    if (!known) {
+      // file yang sedang dibuka tidak ada di daftar sesi ini: tampilkan placeholder, bukan file lain
+      const o = document.createElement("option");
+      o.value = "";
+      o.textContent = t("workspace.toolbar.filesPick");
+      o.disabled = true;
+      o.selected = true;
+      fileSelect.appendChild(o);
+    }
+    files.forEach((f) => {
+      const o = document.createElement("option");
+      o.value = f.id;
+      o.textContent = `${f.filename} · ${formatDate(f.uploaded_at)}`;
+      o.title = f.filename;
+      if (f.id === fileId) o.selected = true;
+      fileSelect.appendChild(o);
+    });
+    fileSelect.disabled = false;
+  }
+
+  async function loadFileSelect() {
+    try {
+      const res = await fetch("/api/files", { noLoader: true });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      renderFileSelect(await res.json());
+    } catch (err) {
+      if (fileSelect) {
+        fileSelect.innerHTML = `<option value="">${escapeHtml(t("workspace.toolbar.filesError"))}</option>`;
+        fileSelect.disabled = true;
+      }
+    }
+  }
+
+  if (fileSelect) {
+    fileSelect.addEventListener("change", () => {
+      const target = fileSelect.value;
+      if (!target || target === fileId) return;
+      // Buka file pilihan seperti biasa (tabel, rekap, chat dimuat ulang untuk file itu)
+      if (window.MejaRouter) window.MejaRouter.go(`/workspace/${target}`);
+      else window.location.href = `/workspace/${target}`;
+    });
+    // Tanggal di label mengikuti bahasa aktif
+    window.addEventListener("mejadata:langchange", () => renderFileSelect(fileSelectList), { signal: pageSignal });
+    loadFileSelect();
+  }
+
   async function loadWsFileHistory() {
     try {
       const res = await fetch("/api/files");
       const files = await res.json();
+      renderFileSelect(files);
       if (!files.length) {
         wsFileHistory.innerHTML = `<p class="filelist-empty">${t("dashboard.filelist.empty")}</p>`;
         return;
