@@ -579,7 +579,7 @@ def build_recap(records, columns, formula_columns=None, formula_cells=None, lang
             if len(plain) == n:
                 ex = ", ".join(_short(val(i, c), 14) for i in by["numtext"][:3])
                 add(f"numtext_all_{c}", "format", "low", tx("numtext_all.t", col=L),
-                    tx("numtext_all.d", n=n, ex=ex), n, [[0, c, nrows - 1, c]])
+                    tx("numtext_all.d", n=n, ex=ex, col=L), n, [[0, c, nrows - 1, c]])
 
         if n_num >= 3 and (n_num + n_nt) / n >= 0.6 and n_text >= 1:
             ex = ", ".join(_short(val(i, c), 14) for i in by["text"][:3])
