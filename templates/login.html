@@ -15,19 +15,76 @@
 {% include "partials/navbar.html" %}
 
 <main class="login-wrap">
-  <section class="login-card" id="loginCard" data-next="{{ next_url }}" data-csrf="{{ csrf_token }}" data-client-id="{{ google_client_id }}" data-mode="{{ mode }}">
-    {% if mode == "register" %}
-    <h1 data-i18n="login.heading.register">Buat akun gratis</h1>
-    <p class="login-sub" data-i18n="login.sub.register">Daftar dengan satu ketukan lewat akun Google. Tanpa kata sandi baru.</p>
-    {% else %}
-    <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
-    <p class="login-sub" data-i18n="login.sub.login">Masuk dengan satu ketukan lewat akun Google untuk membuka file dan riwayat chat-mu.</p>
-    {% endif %}
+  <section class="login-card{% if mode == 'register' %} is-register{% endif %}" id="loginCard" data-next="{{ next_url }}" data-csrf="{{ csrf_token }}" data-client-id="{{ google_client_id }}" data-mode="{{ mode }}">
+    <div class="login-tabs" role="tablist">
+      <a class="login-tab{% if mode != 'register' %} active{% endif %}" href="/login{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" role="tab" data-i18n="login.tab.login">Masuk</a>
+      <a class="login-tab{% if mode == 'register' %} active{% endif %}" href="/daftar{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" role="tab" data-i18n="login.tab.register">Daftar</a>
+    </div>
 
-    <div class="gsi-wrap" id="gsiButton"></div>
+    <div class="login-stage" id="loginStage">
+    {% if mode == "register" %}
+    <div class="login-panel" data-panel="register">
+      <h1 data-i18n="login.heading.register">Buat akun gratis</h1>
+      <p class="login-sub" data-i18n="login.sub.register">Daftar dalam satu klik dengan akun Google. Tanpa kata sandi baru yang perlu diingat.</p>
+    
+      <form class="login-form login-form-grid" id="formRegister" novalidate>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.name"></span>
+          <input type="text" name="name" autocomplete="name" maxlength="80" required>
+          
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.email"></span>
+          <input type="email" name="email" autocomplete="email" maxlength="254" autocapitalize="none" spellcheck="false" required>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.username"></span>
+          <input type="text" name="username" autocomplete="username" maxlength="30" autocapitalize="none" spellcheck="false" required>
+          <small class="login-hint" data-i18n="login.hint.username"></small>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.password"></span>
+          <span class="pw-wrap"><input type="password" name="password" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          <small class="login-hint" data-i18n="login.hint.password"></small>
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.confirm"></span>
+          <span class="pw-wrap"><input type="password" name="confirm" autocomplete="new-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          
+        </label>
+        <button type="submit" class="btn btn-primary login-submit" data-i18n="login.submit.register">Daftar</button>
+      </form>
+</div>
+    {% else %}
+    <div class="login-panel" data-panel="login">
+      <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
+      <p class="login-sub" data-i18n="login.sub.login">Masuk untuk membuka kembali file dan riwayat chat-mu dari perangkat mana saja.</p>
+    
+      <form class="login-form" id="formLogin" novalidate>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.identifier"></span>
+          <input type="text" name="identifier" autocomplete="username" maxlength="254" autocapitalize="none" spellcheck="false" required>
+          
+        </label>
+        <label class="login-field">
+          <span class="login-label" data-i18n="login.field.password"></span>
+          <span class="pw-wrap"><input type="password" name="password" autocomplete="current-password" maxlength="128" required><button type="button" class="pw-toggle" data-i18n="login.pw.show">Tampilkan</button></span>
+          
+        </label>
+        <button type="submit" class="btn btn-primary login-submit" data-i18n="login.submit.login">Masuk</button>
+        <small class="login-hint login-google-hint" data-i18n="login.hint.google">Daftar lewat Google? Gunakan tombol “Masuk dengan Google” di bawah. Akun Google tidak memakai kata sandi.</small>
+      </form>
+</div>
+    {% endif %}
+    </div>
 
     <p class="login-error" id="loginError" role="alert" hidden></p>
+    <button type="button" class="login-error-link" id="goRegister" data-i18n="login.error.goRegister" hidden>Belum punya akun? Daftar sekarang</button>
 
+    <div class="login-divider"><span data-i18n="login.or">atau</span></div>
+
+    <!-- Satu tombol Google saja: tombol resmi Google (One Tap). Link pengalihan hanya menggantikannya bila script Google gagal dimuat. -->
+    <div class="gsi-wrap" id="gsiButton"></div>
     <a class="btn-google" id="googleFallback" href="/auth/google?next={{ next_url|urlencode }}&mode={{ mode }}" data-no-router hidden>
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/>
@@ -37,16 +94,6 @@
       </svg>
       <span data-i18n="login.google.{{ mode }}">{{ "Daftar dengan Google" if mode == "register" else "Masuk dengan Google" }}</span>
     </a>
-
-    <p class="login-switch">
-      {% if mode == "register" %}
-      <span data-i18n="login.switch.toLoginText">Sudah punya akun?</span>
-      <a href="/login{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" data-i18n="login.switch.toLogin">Masuk</a>
-      {% else %}
-      <span data-i18n="login.switch.toRegisterText">Belum punya akun?</span>
-      <a href="/daftar{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" data-i18n="login.switch.toRegister">Daftar</a>
-      {% endif %}
-    </p>
   </section>
 </main>
 
@@ -58,39 +105,115 @@
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/router.js"></script>
 <script>
-  // Masuk & daftar satu jalur: Google One Tap. Akun otomatis dibuat bila belum ada.
   (function () {
+    var SHOW_ONE_TAP_POPUP = false; // true = tambah popup One Tap melayang di pojok (selain tombol di kartu)
+    var params = new URLSearchParams(window.location.search);
     var card = document.getElementById("loginCard");
     var errEl = document.getElementById("loginError");
+    var goRegister = document.getElementById("goRegister");
     var btnBox = document.getElementById("gsiButton");
     var fallback = document.getElementById("googleFallback");
     var clientId = card.getAttribute("data-client-id") || "";
     var nextUrl = card.getAttribute("data-next") || "/dashboard";
-    var mode = card.getAttribute("data-mode") === "register" ? "register" : "login";
     var csrf = card.getAttribute("data-csrf") || "";
+    var mode = card.getAttribute("data-mode") === "register" ? "register" : "login";
     var busy = false, loadTimer = null, left = false;
 
     function tr(key) { return window.MejaDataI18n ? window.MejaDataI18n.t(key) : key; }
     function gid() { return window.google && window.google.accounts && window.google.accounts.id; }
 
-    function showError(code) {
-      var key = "login.error." + code, text = tr(key);
-      if (text === key) text = tr("login.error.failed");
-      errEl.hidden = false;
-      errEl.setAttribute("data-i18n", key);
-      errEl.textContent = text;
-    }
-
+    // Pindah halaman tanpa reload (router). Entri riwayat login diganti supaya Back tidak kembali ke sini.
     function goTo(url) {
       if (gid()) gid().cancel();
       if (window.MejaRouter) window.MejaRouter.go(url, { replace: true });
       else window.location.href = url;
     }
 
+    function showError(code, minutes) {
+      var key = "login.error." + code;
+      errEl.hidden = false;
+      // Gagal masuk / akun belum terdaftar di halaman Masuk: tawarkan daftar
+      goRegister.hidden = !((code === "invalid_credentials" || code === "not_registered") && mode === "login");
+      var text = tr(key);
+      if (text === key) text = tr("login.error.failed");
+      if (minutes) {
+        errEl.removeAttribute("data-i18n");
+        errEl.textContent = text.replace("{minutes}", minutes);
+      } else {
+        errEl.setAttribute("data-i18n", key);
+        errEl.textContent = text;
+      }
+    }
+
+    goRegister.addEventListener("click", function () { goTo("/daftar"); });
+
+    var urlErr = params.get("error");
+    if (urlErr) showError(urlErr);
+
+    document.querySelectorAll(".pw-toggle").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var input = btn.parentNode.querySelector("input");
+        var show = input.type === "password";
+        input.type = show ? "text" : "password";
+        btn.setAttribute("data-i18n", show ? "login.pw.hide" : "login.pw.show");
+        btn.textContent = tr(show ? "login.pw.hide" : "login.pw.show");
+      });
+    });
+
+    // ---------- Login & daftar manual (username/email + kata sandi) ----------
+    function bindForm(form, endpoint, validate) {
+      if (!form) return;
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+        errEl.hidden = true;
+        goRegister.hidden = true;
+        var data = {};
+        new FormData(form).forEach(function (v, k) { data[k] = v; });
+        var bad = validate(data);
+        if (bad) { showError(bad); return; }
+        data.next = nextUrl;
+        var btn = form.querySelector(".login-submit");
+        var label = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = tr("login.submit.loading");
+        fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
+          credentials: "same-origin",
+          body: JSON.stringify(data),
+        })
+          .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, body: j }; }); })
+          .then(function (r) {
+            if (r.ok && r.body.redirect) { goTo(r.body.redirect); return; }
+            showError(r.body.error || "failed", r.body.minutes);
+            btn.disabled = false;
+            btn.textContent = label;
+          })
+          .catch(function () {
+            showError("network");
+            btn.disabled = false;
+            btn.textContent = label;
+          });
+      });
+    }
+
+    bindForm(document.getElementById("formLogin"), "/auth/login", function (d) {
+      if (!d.identifier.trim() || !d.password) return "invalid_credentials";
+    });
+    bindForm(document.getElementById("formRegister"), "/auth/register", function (d) {
+      if (!d.name.trim()) return "name_required";
+      if (!/^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$/.test(d.email.trim()) || d.email.length > 254) return "email_invalid";
+      if (!/^[a-zA-Z0-9_.]{3,30}$/.test(d.username.trim())) return "username_invalid";
+      if (d.password.length < 8) return "password_short";
+      if (d.password !== d.confirm) return "password_mismatch";
+    });
+
+    // ---------- Google One Tap (ID token) ----------
     function onCredential(resp) {
       if (busy || !resp || !resp.credential) return;
       busy = true;
       errEl.hidden = true;
+      goRegister.hidden = true;
       btnBox.style.opacity = "0.5";
       btnBox.style.pointerEvents = "none";
       fetch("/auth/google/onetap", {
@@ -122,7 +245,7 @@
         cancel_on_tap_outside: false,
         itp_support: true,
         use_fedcm_for_prompt: true,
-        context: mode === "register" ? "signup" : "signin", // teks popup One Tap
+        context: mode === "register" ? "signup" : "signin",
       });
       gid().renderButton(btnBox, {
         type: "standard", theme: "outline", size: "large", shape: "pill",
@@ -130,22 +253,21 @@
         width: Math.min(320, Math.max(200, btnBox.clientWidth || 280)),
         locale: (window.MejaDataI18n && window.MejaDataI18n.getLang()) || "id",
       });
-      gid().prompt(); // popup One Tap; bila ditutup/ditolak user, tombol di atas tetap bisa dipakai
+      if (SHOW_ONE_TAP_POPUP) gid().prompt();
     }
 
     function useFallback() {
       if (gid()) return;
-      fallback.hidden = false; // GIS terblokir/gagal dimuat -> alur pengalihan OAuth biasa
+      btnBox.hidden = true;   // ganti, bukan tambah: tetap hanya satu tombol Google
+      fallback.hidden = false;
     }
 
-    // Bersihkan prompt One Tap saat pindah halaman lewat router
     window.addEventListener("mejadata:pageleave", function () {
       left = true;
       if (gid()) gid().cancel();
     }, { once: true });
 
-    if (!clientId) { showError("not_configured"); return; }
-
+    if (!clientId) { btnBox.hidden = true; return; } // Google belum dikonfigurasi: form manual tetap jalan
     if (gid()) { startGoogle(); return; }
     var s = document.createElement("script");
     s.src = "https://accounts.google.com/gsi/client";
@@ -154,9 +276,6 @@
     s.onerror = useFallback;
     document.head.appendChild(s);
     loadTimer = setTimeout(useFallback, 8000);
-
-    var code = new URLSearchParams(window.location.search).get("error");
-    if (code) showError(code);
   })();
 </script>
 </body>
