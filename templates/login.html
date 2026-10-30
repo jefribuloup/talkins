@@ -106,7 +106,7 @@
 <script src="/static/js/router.js"></script>
 <script>
   (function () {
-    var SHOW_ONE_TAP_POPUP = false; // true = tambah popup One Tap melayang di pojok (selain tombol di kartu)
+    var SHOW_ONE_TAP_POPUP = true; // popup One Tap melayang di pojok kanan atas (selain tombol resmi Google di kartu)
     var params = new URLSearchParams(window.location.search);
     var card = document.getElementById("loginCard");
     var errEl = document.getElementById("loginError");
@@ -253,7 +253,15 @@
         width: Math.min(320, Math.max(200, btnBox.clientWidth || 280)),
         locale: (window.MejaDataI18n && window.MejaDataI18n.getLang()) || "id",
       });
-      if (SHOW_ONE_TAP_POPUP) gid().prompt();
+      if (SHOW_ONE_TAP_POPUP) {
+        gid().prompt(function (n) {
+          // Bantu diagnosa: alasan popup tidak tampil terlihat di Console browser (F12)
+          try {
+            if (n.isNotDisplayed && n.isNotDisplayed()) console.warn("One Tap tidak tampil:", n.getNotDisplayedReason());
+            else if (n.isSkippedMoment && n.isSkippedMoment()) console.info("One Tap dilewati:", n.getSkippedReason());
+          } catch (e) { /* FedCM: metode ini tidak selalu tersedia */ }
+        });
+      }
     }
 
     function useFallback() {
