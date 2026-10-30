@@ -1,5 +1,5 @@
 """
-Login & daftar lewat Google One Tap (Google Identity Services, ID token / JWT).
+Login & daftar: manual (username/email + kata sandi) ATAU Google One Tap (Google Identity Services, ID token / JWT).
 Cadangan: alur pengalihan OAuth 2.0 (/auth/google) bila One Tap tidak bisa dimuat.
 
 "Daftar" dan "Masuk" memakai alur yang sama: kalau akun Google belum pernah dipakai,
@@ -47,6 +47,8 @@ USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,30}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
 MAX_FAILED_ATTEMPTS, LOCK_MINUTES = 5, 15
+# Hash palsu: dipakai agar waktu respons sama saat username tidak ada (cegah user enumeration)
+_DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
@@ -303,6 +305,79 @@ def register_routes(app):
         except Exception:
             return _json_error("failed", 500)
         return jsonify({"ok": True, "created": not has_password})
+
+    @app.route("/auth/register", methods=["POST"])
+    def auth_register():
+        if not _csrf_ok():
+            return _json_error("csrf", 403)
+        data = request.get_json(silent=True) or {}
+        name = " ".join(str(data.get("name", "")).split())[:80]
+        email = str(data.get("email", "")).strip().lower()
+        username = str(data.get("username", "")).strip().lower()
+        password = str(data.get("password", ""))
+
+        if not name:
+            return _json_error("name_required", 400)
+        if len(email) > 254 or not EMAIL_RE.match(email):
+            return _json_error("email_invalid", 400)
+        if not USERNAME_RE.match(username):
+            return _json_error("username_invalid", 400)
+        if len(password) < PASSWORD_MIN:
+            return _json_error("password_short", 400)
+        if len(password) > PASSWORD_MAX:
+            return _json_error("password_long", 400)
+        if password.lower() in (username, email):
+            return _json_error("password_weak", 400)
+
+        try:
+            conflict = db.find_register_conflict(username, email)
+            if conflict:
+                return _json_error(conflict, 409)
+            user = db.create_manual_user(username, name, email, generate_password_hash(password))
+            if not user:  # kalah balapan dgn pendaftar lain yang barusan
+                return _json_error(db.find_register_conflict(username, email) or "username_taken", 409)
+        except Exception:
+            return _json_error("failed", 500)
+        _login(user, adopt_from=session.get("session_id"), notice="registered")
+        return jsonify({"ok": True, "redirect": "/dashboard"})  # pendaftar baru langsung ke dashboard
+
+    @app.route("/auth/login", methods=["POST"])
+    def auth_login():
+        if not _csrf_ok():
+            return _json_error("csrf", 403)
+        data = request.get_json(silent=True) or {}
+        # Boleh diisi username ATAU email ("identifier"; "username" tetap diterima agar kompatibel)
+        identifier = str(data.get("identifier") or data.get("username") or "").strip().lower()
+        password = str(data.get("password", ""))
+        valid_id = bool(EMAIL_RE.match(identifier)) if "@" in identifier else bool(USERNAME_RE.match(identifier))
+
+        try:
+            user = db.get_user_for_login(identifier) if valid_id else None
+        except Exception:
+            return _json_error("failed", 500)
+
+        # Akun terkunci: tolak sebelum memeriksa kata sandi, supaya tebakan tidak bisa dilanjutkan
+        if user and user.get("is_locked"):
+            return _json_error("locked", 429, minutes=max(int(user.get("lock_minutes") or 1), 1))
+
+        stored = user.get("password_hash") if user else None
+        if stored and stored.startswith("!"):
+            stored = None  # penanda "tanpa kata sandi" (akun Google), bukan hash asli
+        ok = check_password_hash(stored or _DUMMY_HASH, password[:PASSWORD_MAX]) and bool(stored)
+        if not ok:
+            if user and stored:
+                try:
+                    db.record_login_failure(user["id"], MAX_FAILED_ATTEMPTS, LOCK_MINUTES)
+                except Exception:
+                    pass
+            return _json_error("invalid_credentials", 401)  # pesan sama untuk semua kasus gagal
+
+        try:
+            db.reset_login_failures(user["id"])
+        except Exception:
+            pass
+        _login(user, adopt_from=session.get("session_id"), notice="login")
+        return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
 
     @app.route("/auth/google")
     def auth_google():
