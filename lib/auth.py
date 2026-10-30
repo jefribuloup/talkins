@@ -1,5 +1,6 @@
 """
-Login & daftar lewat Google OAuth 2.0 (Authorization Code flow, server-side).
+Login & daftar lewat Google One Tap (Google Identity Services, ID token / JWT).
+Cadangan: alur pengalihan OAuth 2.0 (/auth/google) bila One Tap tidak bisa dimuat.
 
 "Daftar" dan "Masuk" memakai alur yang sama: kalau akun Google belum pernah dipakai,
 akun Meja Data otomatis dibuat; kalau sudah ada, langsung masuk.
@@ -14,7 +15,8 @@ Cara kerja identitas:
 - File yang diunggah saat masih anonim dipindahkan (diadopsi) ke akun saat pertama login.
 
 Environment variable:
-  GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET   (wajib, dari Google Cloud Console)
+  GOOGLE_CLIENT_ID   (wajib, dari Google Cloud Console; daftarkan domain di "Authorized JavaScript origins")
+  GOOGLE_CLIENT_SECRET (hanya untuk alur cadangan /auth/google)
   APP_BASE_URL       (opsional, mis. https://talkins.vercel.app; dasar redirect URI)
   GOOGLE_REDIRECT_URI(opsional, menimpa APP_BASE_URL + /auth/google/callback)
   REQUIRE_LOGIN=0    (opsional, mematikan wajib login; default AKTIF: semua halaman kecuali beranda & /login butuh login)
@@ -27,6 +29,8 @@ import uuid
 from urllib.parse import urlencode, urlparse
 
 import requests
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from flask import redirect, request, session, jsonify, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -38,13 +42,12 @@ GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 GOOGLE_TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 DEFAULT_SECRET = "dev-secret-change-me"
 
-# Login manual (username + kata sandi)
+# Validasi username/kata sandi (dipakai halaman Pengaturan)
 USERNAME_RE = re.compile(r"^[a-z0-9_.]{3,30}$")
 EMAIL_RE = re.compile(r"^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
 MAX_FAILED_ATTEMPTS, LOCK_MINUTES = 5, 15
-# Hash palsu: dipakai agar waktu respons sama saat username tidak ada (cegah user enumeration)
-_DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
+GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
 _PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/api/me", "/favicon.ico")
@@ -278,79 +281,6 @@ def register_routes(app):
             return _json_error("failed", 500)
         return jsonify({"ok": True, "created": not has_password})
 
-    @app.route("/auth/register", methods=["POST"])
-    def auth_register():
-        if not _csrf_ok():
-            return _json_error("csrf", 403)
-        data = request.get_json(silent=True) or {}
-        name = " ".join(str(data.get("name", "")).split())[:80]
-        email = str(data.get("email", "")).strip().lower()
-        username = str(data.get("username", "")).strip().lower()
-        password = str(data.get("password", ""))
-
-        if not name:
-            return _json_error("name_required", 400)
-        if len(email) > 254 or not EMAIL_RE.match(email):
-            return _json_error("email_invalid", 400)
-        if not USERNAME_RE.match(username):
-            return _json_error("username_invalid", 400)
-        if len(password) < PASSWORD_MIN:
-            return _json_error("password_short", 400)
-        if len(password) > PASSWORD_MAX:
-            return _json_error("password_long", 400)
-        if password.lower() in (username, email):
-            return _json_error("password_weak", 400)
-
-        try:
-            conflict = db.find_register_conflict(username, email)
-            if conflict:
-                return _json_error(conflict, 409)
-            user = db.create_manual_user(username, name, email, generate_password_hash(password))
-            if not user:  # kalah balapan dgn pendaftar lain yang barusan
-                return _json_error(db.find_register_conflict(username, email) or "username_taken", 409)
-        except Exception:
-            return _json_error("failed", 500)
-        _login(user, adopt_from=session.get("session_id"), notice="registered")
-        return jsonify({"ok": True, "redirect": "/dashboard"})  # pendaftar baru langsung ke dashboard
-
-    @app.route("/auth/login", methods=["POST"])
-    def auth_login():
-        if not _csrf_ok():
-            return _json_error("csrf", 403)
-        data = request.get_json(silent=True) or {}
-        # Boleh diisi username ATAU email ("identifier"; "username" tetap diterima agar kompatibel)
-        identifier = str(data.get("identifier") or data.get("username") or "").strip().lower()
-        password = str(data.get("password", ""))
-        valid_id = bool(EMAIL_RE.match(identifier)) if "@" in identifier else bool(USERNAME_RE.match(identifier))
-
-        try:
-            user = db.get_user_for_login(identifier) if valid_id else None
-        except Exception:
-            return _json_error("failed", 500)
-
-        # Akun terkunci: tolak sebelum memeriksa kata sandi, supaya tebakan tidak bisa dilanjutkan
-        if user and user.get("is_locked"):
-            return _json_error("locked", 429, minutes=max(int(user.get("lock_minutes") or 1), 1))
-
-        stored = user.get("password_hash") if user else None
-        if stored and stored.startswith("!"):
-            stored = None  # penanda "tanpa kata sandi" (akun Google), bukan hash asli
-        ok = check_password_hash(stored or _DUMMY_HASH, password[:PASSWORD_MAX]) and bool(stored)
-        if not ok:
-            if user and stored:
-                try:
-                    db.record_login_failure(user["id"], MAX_FAILED_ATTEMPTS, LOCK_MINUTES)
-                except Exception:
-                    pass
-            return _json_error("invalid_credentials", 401)  # pesan sama untuk semua kasus gagal
-
-        try:
-            db.reset_login_failures(user["id"])
-        except Exception:
-            pass
-        _login(user, adopt_from=session.get("session_id"), notice="login")
-        return jsonify({"ok": True, "redirect": _safe_next(data.get("next"))})
-
     @app.route("/auth/google")
     def auth_google():
         if not _client_id() or not _client_secret():
@@ -372,12 +302,12 @@ def register_routes(app):
         }
         return redirect(GOOGLE_AUTH_URL + "?" + urlencode(params))
 
-    @app.route("/auth/google/token", methods=["POST"])
-    def auth_google_token():
-        """Masuk/daftar lewat popup Google (Google Identity Services) TANPA pindah halaman.
-        Browser mengirim access token; server memastikan token itu diterbitkan UNTUK aplikasi ini
-        (cek `aud` ke tokeninfo; tanpa ini token dari aplikasi lain bisa dipakai menyamar), lalu
-        mengambil profil dari userinfo dan memakai alur yang sama dengan callback."""
+    @app.route("/auth/google/onetap", methods=["POST"])
+    def auth_google_onetap():
+        """Masuk/daftar lewat Google One Tap (atau tombol GIS). Browser mengirim ID token (JWT) di
+        field `credential`. Server memverifikasi tanda tangan, `aud` (harus client ID aplikasi ini),
+        `iss`, dan masa berlaku lewat google-auth, lalu memakai alur yang sama dengan callback:
+        akun dibuat otomatis bila belum ada, langsung masuk bila sudah ada."""
         if not _csrf_ok():
             return _json_error("csrf", 403)
         if not _client_id():
@@ -386,25 +316,20 @@ def register_routes(app):
             return _json_error("not_configured", 503)
 
         data = request.get_json(silent=True) or {}
-        access_token = str(data.get("access_token", "")).strip()
-        if not access_token or len(access_token) > 4096:
+        credential = str(data.get("credential", "")).strip()
+        if not credential or len(credential) > 8192:
             return _json_error("failed", 400)
 
         try:
-            ti = requests.get(GOOGLE_TOKENINFO_URL, params={"access_token": access_token}, timeout=10)
-            if ti.status_code != 200:
-                return _json_error("failed", 401)
-            tinfo = ti.json()
-            aud = str(tinfo.get("aud") or tinfo.get("azp") or "")
-            if not aud or not secrets.compare_digest(aud, _client_id()):
-                return _json_error("failed", 401)  # token milik aplikasi lain
-            info = requests.get(
-                GOOGLE_USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}, timeout=10
+            profile = google_id_token.verify_oauth2_token(
+                credential, google_requests.Request(), _client_id(), clock_skew_in_seconds=10
             )
-            info.raise_for_status()
-            profile = info.json()
+        except ValueError:
+            return _json_error("failed", 401)  # token palsu / kedaluwarsa / milik aplikasi lain
         except Exception:
-            return _json_error("failed", 502)
+            return _json_error("failed", 502)  # gagal mengambil kunci publik Google
+        if profile.get("iss") not in GOOGLE_ISSUERS:
+            return _json_error("failed", 401)
 
         code_err, is_new = _google_finish(profile)
         if code_err:
