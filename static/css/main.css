@@ -835,3 +835,14 @@ button.btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* Pembungkus bagian navbar yang bergantung status login (diganti router saat login tanpa reload) */
 .navbar-auth { display: contents; }
+
+/* Tombol resmi Google One Tap (iframe) */
+.gsi-wrap { display: flex; justify-content: center; min-height: 44px; margin: 22px 0 6px; color-scheme: light; }
+.login-card .btn-google { margin-top: 14px; }
+.login-switch { margin: 18px 0 0; font-size: 14px; color: var(--text-muted); }
+.login-switch a { color: var(--accent); font-weight: 600; text-decoration: none; margin-left: 4px; }
+.login-switch a:hover { text-decoration: underline; }
+a.login-tab { display: block; text-align: center; text-decoration: none; }
+.login-card .gsi-wrap { margin: 4px 0 0; }
+/* display:flex pada elemen ini menimpa atribut [hidden]; paksa tersembunyi agar tombol Google tidak dobel */
+.btn-google[hidden], .gsi-wrap[hidden] { display: none !important; }
