@@ -382,6 +382,12 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
     engine = _pick_engine(filename)
     try:
         xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
+    except ImportError:
+        # Pustaka pembaca belum terpasang di server (mis. xlrd untuk .xls): bukan salah file user
+        raise ValueError(
+            "Server belum memiliki pustaka pembaca untuk format ini (" + engine + "). "
+            "Simpan file sebagai .xlsx lalu unggah ulang, atau hubungi admin."
+        )
     except Exception:
         raise ValueError(
             "File/spreadsheet tidak bisa dibaca. Pastikan formatnya didukung "
