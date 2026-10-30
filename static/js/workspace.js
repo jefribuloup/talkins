@@ -603,6 +603,25 @@
   // Listener global dibatalkan otomatis oleh router saat user pindah page (tanpa reload)
   const pageSignal = window.MejaRouter ? window.MejaRouter.signal : undefined;
 
+  // Tinggi area kerja = layar dikurangi navbar + bar aksi. Footer sengaja TIDAK ikut dihitung:
+  // ia tetap di bawah (lewat scroll), jadi tabel & chat bisa memakai hampir seluruh tinggi layar.
+  (function fitWorkspaceHeight() {
+    const nav = document.querySelector(".navbar");
+    const bar = document.querySelector(".ws-actions");
+    if (!nav || !bar) return;
+    const apply = () => {
+      document.documentElement.style.setProperty("--ws-chrome", nav.offsetHeight + bar.offsetHeight + "px");
+    };
+    apply();
+    window.addEventListener("resize", apply, { signal: pageSignal });
+    if (window.ResizeObserver) {
+      const ro = new window.ResizeObserver(apply);
+      ro.observe(nav);
+      ro.observe(bar);
+      if (pageSignal) pageSignal.addEventListener("abort", () => ro.disconnect());
+    }
+  })();
+
   document.addEventListener("keydown", (e) => {
     const tag = (document.activeElement && document.activeElement.tagName) || "";
     if (e.key === "Escape" && !/INPUT|TEXTAREA|SELECT/.test(tag) && selCount()) clearSelection();
