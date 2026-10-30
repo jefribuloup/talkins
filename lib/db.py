@@ -248,6 +248,17 @@ def upsert_user(google_sub, email, name, picture):
     return row
 
 
+def find_user_by_google_sub(google_sub):
+    """Cari akun lewat identitas Google (`sub`). Dipakai /login untuk menolak akun yang belum daftar."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT id FROM users WHERE google_sub=%s", (google_sub,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return dict(row) if row else None
+
+
 def get_user(user_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
