@@ -916,3 +916,15 @@ body.deck-open { overflow: hidden; }
   .toolbar-files { flex: 1 1 100%; order: 4; margin-left: 0; }
   .toolbar-files .toolbar-select { flex: 1 1 0; max-width: none; min-width: 0; }
 }
+
+/* Desktop: area kerja setinggi layar dikurangi navbar + bar aksi (var --ws-chrome diukur workspace.js).
+   Sebelumnya flex:1 1 0 membuat tingginya cuma "sisa" setelah footer ikut dikurangkan -> terjepit.
+   Footer tetap di bawah, terlihat saat halaman di-scroll. Mobile/tablet (<=900px) tidak berubah. */
+@media (min-width: 901px) {
+  .ws-main {
+    flex: 0 0 auto;
+    height: calc(100vh - var(--ws-chrome, 130px));
+    height: calc(100dvh - var(--ws-chrome, 130px));
+    min-height: 540px;
+  }
+}
