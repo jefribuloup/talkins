@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="max-upload-mb" content="{{ max_upload_mb }}">
 <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-<title>Masuk / Daftar — Talkins</title>
+<title>{{ "Daftar" if mode == "register" else "Masuk" }} — Talkins</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/main.css">
@@ -15,23 +15,38 @@
 {% include "partials/navbar.html" %}
 
 <main class="login-wrap">
-  <section class="login-card" id="loginCard" data-next="{{ next_url }}" data-csrf="{{ csrf_token }}" data-client-id="{{ google_client_id }}">
-    <h1 data-i18n="login.heading">Masuk atau daftar dengan Google</h1>
-    <p class="login-sub" data-i18n="login.sub">Satu ketukan saja. Belum punya akun? Akun dibuat otomatis saat pertama kali masuk.</p>
+  <section class="login-card" id="loginCard" data-next="{{ next_url }}" data-csrf="{{ csrf_token }}" data-client-id="{{ google_client_id }}" data-mode="{{ mode }}">
+    {% if mode == "register" %}
+    <h1 data-i18n="login.heading.register">Buat akun gratis</h1>
+    <p class="login-sub" data-i18n="login.sub.register">Daftar dengan satu ketukan lewat akun Google. Tanpa kata sandi baru.</p>
+    {% else %}
+    <h1 data-i18n="login.heading.login">Selamat datang kembali</h1>
+    <p class="login-sub" data-i18n="login.sub.login">Masuk dengan satu ketukan lewat akun Google untuk membuka file dan riwayat chat-mu.</p>
+    {% endif %}
 
     <div class="gsi-wrap" id="gsiButton"></div>
 
     <p class="login-error" id="loginError" role="alert" hidden></p>
 
-    <a class="btn-google" id="googleFallback" href="/auth/google?next={{ next_url|urlencode }}" data-no-router hidden>
+    <a class="btn-google" id="googleFallback" href="/auth/google?next={{ next_url|urlencode }}&mode={{ mode }}" data-no-router hidden>
       <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
         <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.5 5.4 2.6 13.2l7.9 6.1C12.4 13.6 17.7 9.5 24 9.5z"/>
         <path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/>
         <path fill="#FBBC05" d="M10.5 28.7A14.5 14.5 0 0 1 9.5 24c0-1.6.3-3.2.8-4.7l-7.9-6.1A24 24 0 0 0 0 24c0 3.9.9 7.5 2.6 10.8l7.9-6.1z"/>
         <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.9 2.3-8.4 2.3-6.3 0-11.6-4.1-13.5-9.8l-7.9 6.1C6.5 42.6 14.6 48 24 48z"/>
       </svg>
-      <span data-i18n="login.google.fallback">Lanjutkan dengan Google</span>
+      <span data-i18n="login.google.{{ mode }}">{{ "Daftar dengan Google" if mode == "register" else "Masuk dengan Google" }}</span>
     </a>
+
+    <p class="login-switch">
+      {% if mode == "register" %}
+      <span data-i18n="login.switch.toLoginText">Sudah punya akun?</span>
+      <a href="/login{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" data-i18n="login.switch.toLogin">Masuk</a>
+      {% else %}
+      <span data-i18n="login.switch.toRegisterText">Belum punya akun?</span>
+      <a href="/daftar{% if next_url != '/dashboard' %}?next={{ next_url|urlencode }}{% endif %}" data-i18n="login.switch.toRegister">Daftar</a>
+      {% endif %}
+    </p>
   </section>
 </main>
 
@@ -51,6 +66,7 @@
     var fallback = document.getElementById("googleFallback");
     var clientId = card.getAttribute("data-client-id") || "";
     var nextUrl = card.getAttribute("data-next") || "/dashboard";
+    var mode = card.getAttribute("data-mode") === "register" ? "register" : "login";
     var csrf = card.getAttribute("data-csrf") || "";
     var busy = false, loadTimer = null, left = false;
 
@@ -81,7 +97,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrf },
-        body: JSON.stringify({ credential: resp.credential, next: nextUrl }),
+        body: JSON.stringify({ credential: resp.credential, next: nextUrl, mode: mode }),
       })
         .then(function (res) { return res.json().then(function (j) { return { ok: res.ok, body: j }; }); })
         .then(function (r) {
@@ -106,10 +122,11 @@
         cancel_on_tap_outside: false,
         itp_support: true,
         use_fedcm_for_prompt: true,
+        context: mode === "register" ? "signup" : "signin", // teks popup One Tap
       });
       gid().renderButton(btnBox, {
         type: "standard", theme: "outline", size: "large", shape: "pill",
-        text: "continue_with", logo_alignment: "left",
+        text: mode === "register" ? "signup_with" : "signin_with", logo_alignment: "left",
         width: Math.min(320, Math.max(200, btnBox.clientWidth || 280)),
         locale: (window.MejaDataI18n && window.MejaDataI18n.getLang()) || "id",
       });
