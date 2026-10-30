@@ -50,7 +50,7 @@ MAX_FAILED_ATTEMPTS, LOCK_MINUTES = 5, 15
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
-_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/api/me", "/favicon.ico")
+_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/api/me", "/favicon.ico")
 
 
 def _client_id():
@@ -133,7 +133,7 @@ def _json_error(code, status, **extra):
     return jsonify(dict(error=code, **extra)), status
 
 
-def _google_finish(profile):
+def _google_finish(profile, mode="register"):
     """Selesaikan masuk/daftar dari profil Google yang sudah terverifikasi (userinfo).
     Akun dibuat bila belum ada. Mengembalikan (kode_error | None, is_new)."""
     sub, email = profile.get("sub"), (profile.get("email") or "").lower()
@@ -142,6 +142,9 @@ def _google_finish(profile):
     if not profile.get("email_verified"):
         return "email_unverified", False
     try:
+        # /login hanya untuk akun yang sudah ada; /daftar membuat akun baru (atau langsung masuk bila sudah ada)
+        if mode == "login" and not db.find_user_by_google_sub(sub):
+            return "not_registered", False
         user = db.upsert_user(
             google_sub=sub,
             email=email,
@@ -156,8 +159,16 @@ def _google_finish(profile):
     return None, is_new
 
 
-def _fail(code):
-    return redirect("/login?" + urlencode({"error": code}))
+def _mode(value):
+    return "register" if value == "register" else "login"
+
+
+def _auth_path(mode):
+    return "/daftar" if mode == "register" else "/login"
+
+
+def _fail(code, mode="login"):
+    return redirect(_auth_path(mode) + "?" + urlencode({"error": code}))
 
 
 def register_routes(app):
@@ -191,16 +202,28 @@ def register_routes(app):
             return jsonify({"error": "Silakan masuk dulu.", "login_required": True}), 401
         return redirect("/login?" + urlencode({"next": request.full_path.rstrip("?")}))
 
-    @app.route("/login")
-    def login_page():
+    def _auth_page(mode):
+        nxt = _safe_next(request.args.get("next"))
         if current_user():
-            return redirect(_safe_next(request.args.get("next")))
+            return redirect(nxt)
         return render_template(
             "login.html",
-            next_url=_safe_next(request.args.get("next")),
+            mode=mode,
+            next_url=nxt,
             csrf_token=_csrf_token(),
             google_client_id=_client_id(),
         )
+
+    @app.route("/login")
+    def login_page():
+        if request.args.get("mode") == "register":  # tautan lama -> URL baru
+            q = {"next": request.args["next"]} if request.args.get("next") else {}
+            return redirect("/daftar" + ("?" + urlencode(q) if q else ""))
+        return _auth_page("login")
+
+    @app.route("/daftar")
+    def register_page():
+        return _auth_page("register")
 
     # ---------- Pengaturan akun: ganti username & kata sandi ----------
 
@@ -284,13 +307,14 @@ def register_routes(app):
     @app.route("/auth/google")
     def auth_google():
         if not _client_id() or not _client_secret():
-            return _fail("not_configured")
+            return _fail("not_configured", _mode(request.args.get("mode")))
         if app.secret_key == DEFAULT_SECRET and os.environ.get("VERCEL"):
-            return _fail("not_configured")  # SECRET_KEY default = sesi bisa dipalsukan
+            return _fail("not_configured", _mode(request.args.get("mode")))  # SECRET_KEY default = sesi bisa dipalsukan
 
         state = secrets.token_urlsafe(32)
         session["oauth_state"] = state
         session["oauth_next"] = _safe_next(request.args.get("next"))
+        session["oauth_mode"] = _mode(request.args.get("mode"))
         params = {
             "client_id": _client_id(),
             "redirect_uri": _redirect_uri(),
@@ -331,9 +355,9 @@ def register_routes(app):
         if profile.get("iss") not in GOOGLE_ISSUERS:
             return _json_error("failed", 401)
 
-        code_err, is_new = _google_finish(profile)
+        code_err, is_new = _google_finish(profile, _mode(data.get("mode")))
         if code_err:
-            return _json_error(code_err, 403 if code_err == "email_unverified" else 500)
+            return _json_error(code_err, 403 if code_err in ("email_unverified", "not_registered") else 500)
         return jsonify({
             "ok": True,
             "is_new": is_new,
@@ -342,16 +366,17 @@ def register_routes(app):
 
     @app.route("/auth/google/callback")
     def auth_google_callback():
+        mode = _mode(session.pop("oauth_mode", None))
         if request.args.get("error"):
-            return _fail("access_denied" if request.args["error"] == "access_denied" else "failed")
+            return _fail("access_denied" if request.args["error"] == "access_denied" else "failed", mode)
 
         expected = session.pop("oauth_state", None)
         given = request.args.get("state", "")
         if not expected or not secrets.compare_digest(expected, given):
-            return _fail("state")
+            return _fail("state", mode)
         code = request.args.get("code")
         if not code:
-            return _fail("failed")
+            return _fail("failed", mode)
         next_url = _safe_next(session.pop("oauth_next", None))
 
         try:
@@ -369,7 +394,7 @@ def register_routes(app):
             tok.raise_for_status()
             access_token = tok.json().get("access_token")
             if not access_token:
-                return _fail("failed")
+                return _fail("failed", mode)
             info = requests.get(
                 GOOGLE_USERINFO_URL,
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -378,11 +403,11 @@ def register_routes(app):
             info.raise_for_status()
             profile = info.json()
         except Exception:
-            return _fail("failed")
+            return _fail("failed", mode)
 
-        code_err, is_new = _google_finish(profile)
+        code_err, is_new = _google_finish(profile, mode)
         if code_err:
-            return _fail(code_err)
+            return _fail(code_err, mode)
         return redirect("/dashboard" if is_new else next_url)
 
     @app.route("/auth/logout", methods=["POST"])
