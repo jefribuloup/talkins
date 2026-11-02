@@ -512,12 +512,26 @@ a { color: inherit; }
 .strip-more {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 18px 32px 0;
+  padding: 28px 32px 72px;   /* ruang lega di bawah tautan sebelum footer */
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 13.5px;
 }
-.strip-more a { color: var(--accent); text-decoration: none; }
-.strip-more a:hover { text-decoration: underline; }
+.strip-more a {
+  display: inline-block;
+  color: var(--accent);
+  text-decoration: none;
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--accent-dim);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.strip-more a:hover { border-color: var(--accent); transform: translateX(3px); }
+@media (max-width: 860px) {
+  .strip-more { padding: 22px 20px 56px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .strip-more a { transition: none; }
+  .strip-more a:hover { transform: none; }
+}
 
 /* ---------- File list ---------- */
 
