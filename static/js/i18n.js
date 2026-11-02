@@ -95,7 +95,7 @@
       "footer.rights": "Hak cipta dilindungi.",
 
       "index.hero.title": "Ajak ngobrol<br>file Excel-mu.",
-      "index.hero.lede": "Upload satu atau banyak sheet, biar sistem yang rapikan datanya duluan. Tanya apa saja soal isinya, otak-atik angkanya, lihat hasilnya jadi slide — file asli di komputermu tidak pernah tersentuh sama sekali.",
+      "index.hero.lede": "Unggah satu atau banyak lembar, biar sistem yang rapikan datanya. Tanya apa saja soal isinya, otak-atik angkanya, lihat hasil rekapnya, kesimpulannya atau Anda bisa jadikan slide.",
       "index.hero.cta": "Buka Dashboard",
       "index.section.howitworks": "Cara kerja",
       "index.feature1.label": "Sheet apa saja",
@@ -358,7 +358,7 @@
       "footer.rights": "All rights reserved.",
 
       "index.hero.title": "Chat with<br>your Excel files.",
-      "index.hero.lede": "Upload one sheet or dozens, and the system tidies the data first. Ask anything about it, tweak the numbers, turn results into slides — the file on your computer is never touched.",
+      "index.hero.lede": "Upload one or more spreadsheets, and let the system organize the data. Ask anything about the content, manipulate the figures, view the summaries and conclusions, or even turn the data into a slide presentation.",
       "index.hero.cta": "Open Dashboard",
       "index.section.howitworks": "How it works",
       "index.feature1.label": "Any sheet layout",
