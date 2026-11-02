@@ -126,6 +126,11 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/cara-kerja")
+def how_it_works():
+    return render_template("how.html")
+
+
 @app.route("/dashboard")
 def dashboard():
     return render_template("dashboard.html")
@@ -244,6 +249,18 @@ def manipulate(file_id):
         result = excel_engine.apply_operation(file_id, op)
     except Exception as e:
         return _error_response(e, "Aksi pada data belum berhasil dijalankan. Coba lagi atau pilih aksi lain.")
+    return jsonify(result)
+
+
+@app.route("/api/files/<file_id>/cell", methods=["POST"])
+def set_cell(file_id):
+    """Isi satu sel di working copy. Teks berawalan '=' dihitung sebagai rumus Excel."""
+    data = request.get_json(silent=True) or {}
+    try:
+        result = excel_engine.set_cell(
+            file_id, data.get("sheet"), data.get("row"), data.get("col"), data.get("input", ""))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     return jsonify(result)
 
 
