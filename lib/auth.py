@@ -52,7 +52,7 @@ _DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
-_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/api/me", "/favicon.ico")
+_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/cara-kerja", "/api/me", "/favicon.ico")
 
 
 def _client_id():
