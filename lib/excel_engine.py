@@ -20,6 +20,7 @@ import openpyxl
 from flask import send_file
 
 from lib import db
+from lib import cell_formula
 
 PAGE_SIZE = 50
 
@@ -534,6 +535,19 @@ MAX_ROWS_PER_REQUEST = 500
 MAX_COL_CHARS = 60
 
 
+def _formula_cells_view(formula_cells, dirty):
+    """Peta rumus per-sel untuk browser. Setelah sort/filter/dll (dirty), posisi rumus bawaan file
+    tidak akurat lagi -> hanya rumus yang diisi user (u=true) yang ditampilkan."""
+    if not dirty:
+        return formula_cells
+    out = {}
+    for r, cells in formula_cells.items():
+        keep = {k: v for k, v in cells.items() if isinstance(v, dict) and v.get("u")}
+        if keep:
+            out[r] = keep
+    return out
+
+
 def _col_chars(records, ncols):
     """Panjang teks terpanjang tiap kolom (jumlah karakter tampilan, maks MAX_COL_CHARS).
     0 = kolom tanpa isi -> frontend memakai lebar standar. Dipakai untuk lebar kolom dinamis."""
@@ -583,7 +597,7 @@ def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=Tru
             "col_chars": _col_chars(records, len(columns)),
             "formula_columns": formula_columns,
             # peta rumus per sel (sparse, hanya baris yg discan saat ingest) -> key = indeks baris
-            "formula_cells": {} if row_order_dirty else formula_cells,
+            "formula_cells": _formula_cells_view(formula_cells, row_order_dirty),
             "row_order_dirty": row_order_dirty,
         })
     return out
@@ -687,6 +701,9 @@ def apply_operation(file_id, op):
     # (berbasis posisi saat ingest) tidak akurat lagi sampai user reset ke data asli.
     if action in ("drop_na", "drop_duplicates", "filter_rows", "sort", "drop_column"):
         db.set_row_order_dirty(file_id, sheet_name, True)
+        # Rumus isian user menunjuk alamat sel; setelah baris/kolom bergeser alamatnya tidak
+        # berlaku lagi -> nilainya tetap ada sebagai angka/teks biasa, rumusnya dilepas.
+        _drop_user_formulas(file_id, sheet_name)
 
     # Kolom dihapus -> huruf kolom di info rumus ikut bergeser.
     if rename_map is not None:
@@ -700,6 +717,142 @@ def apply_operation(file_id, op):
         "columns": new_columns,
         "row_count": len(new_records),
         "preview": new_records[:PAGE_SIZE],
+    }
+
+
+def _drop_user_formulas(file_id, sheet_name):
+    formula_cells = db.get_formula_cells(file_id, sheet_name)
+    changed = False
+    for r in list(formula_cells):
+        for letter in list(formula_cells[r]):
+            e = formula_cells[r][letter]
+            if isinstance(e, dict) and e.get("u"):
+                del formula_cells[r][letter]
+                changed = True
+        if not formula_cells[r]:
+            del formula_cells[r]
+    if changed:
+        db.update_formula_cells(file_id, sheet_name, formula_cells)
+
+
+# ---------- Isi sel langsung di grid (nilai biasa atau rumus hasil paste dari tab Rumus) ----------
+
+XL_MAX_ROWS = 1048576
+XL_MAX_COLS = 16384
+MAX_EXTRA_ROWS = 5000     # seberapa jauh di bawah data terakhir sel boleh diisi
+MAX_EXTRA_COLS = 100      # seberapa jauh di kanan data terakhir sel boleh diisi
+MAX_USER_FORMULAS = 1000
+MAX_INPUT_LEN = 5000
+
+
+def _parse_literal(text):
+    """Isian biasa -> nilai sel. Angka murni jadi angka; sisanya teks apa adanya
+    (\"007\" tetap teks supaya nol di depan tidak hilang)."""
+    s = text.strip()
+    if s == "":
+        return None
+    if _NUMERIC_TEXT.match(s) and len(s.lstrip("-")) <= 15:
+        return float(s) if "." in s else int(s)
+    return text
+
+
+def _user_formulas(formula_cells):
+    out = {}
+    for r, cells in formula_cells.items():
+        for letter, e in cells.items():
+            if isinstance(e, dict) and e.get("u") and e.get("f"):
+                out[(int(r), _letters_to_idx(letter))] = e["f"]
+    return out
+
+
+def set_cell(file_id, sheet_name, row, col, raw_input):
+    """Isi satu sel (0-based). Teks berawalan '=' dihitung sebagai rumus Excel: hasilnya disimpan
+    sebagai nilai sel dan rumusnya dicatat di formula_cells (u=true) supaya tab Rumus bisa
+    menampilkannya. Semua rumus isian user dihitung ulang tiap ada perubahan.
+
+    Hanya mengubah working copy. Return {total_rows, total_cols, columns, changes, formula_cells}."""
+    try:
+        row, col = int(row), int(col)
+    except (TypeError, ValueError):
+        raise ValueError("Posisi sel tidak valid")
+    if not (0 <= row < XL_MAX_ROWS and 0 <= col < XL_MAX_COLS):
+        raise ValueError("Posisi sel di luar batas Excel")
+    text = "" if raw_input is None else str(raw_input)
+    if len(text) > MAX_INPUT_LEN:
+        raise ValueError(f"Isian terlalu panjang (maksimal {MAX_INPUT_LEN} karakter)")
+
+    columns = _get_columns(file_id, sheet_name)
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    if records is None:
+        raise ValueError("Sheet tidak ditemukan")
+    nrows, ncols = len(records), len(columns)
+    if row >= nrows + MAX_EXTRA_ROWS or col >= ncols + MAX_EXTRA_COLS:
+        raise ValueError(
+            f"Sel terlalu jauh dari data (maksimal {MAX_EXTRA_ROWS} baris / {MAX_EXTRA_COLS} kolom setelah data terakhir)")
+
+    _, formula_cells, dirty, _ = db.get_formula_info(file_id, sheet_name)
+    user = _user_formulas(formula_cells)
+    letter = _idx_to_letters(col)
+    key = (row, col)
+    stripped = text.strip()
+    is_formula = stripped.startswith("=")
+
+    entry = None
+    value = None
+    if is_formula:
+        if key not in user and len(user) >= MAX_USER_FORMULAS:
+            raise ValueError(f"Terlalu banyak rumus isian (maksimal {MAX_USER_FORMULAS} per sheet)")
+        trial = dict(user)
+        trial[key] = stripped
+        try:
+            deps = cell_formula.check(stripped, records, trial, nrows)
+        except cell_formula.FormulaSyntaxError as e:
+            raise ValueError(str(e))
+        user = trial
+        entry = {"f": stripped, "deps": deps, "x": False, "u": True}
+    else:
+        value = _parse_literal(text)
+        user.pop(key, None)
+
+    # Perluas grid kalau sel berada di luar data (baris/kolom kosong di ujung tidak disimpan)
+    new_ncols = max(ncols, col + 1)
+    if new_ncols > ncols:
+        columns = _letters_list(new_ncols)
+    for rw in records:
+        if len(rw) < new_ncols:
+            rw.extend([None] * (new_ncols - len(rw)))
+    if row >= nrows:
+        records.extend([[None] * new_ncols for _ in range(row + 1 - nrows)])
+
+    # Catat / hapus rumus di sel ini (menimpa rumus bawaan file juga)
+    cells = formula_cells.setdefault(str(row), {})
+    if entry:
+        cells[letter] = entry
+    else:
+        cells.pop(letter, None)
+    if not cells:
+        formula_cells.pop(str(row), None)
+
+    if not is_formula:
+        records[row][col] = value
+
+    # Hitung ulang semua rumus isian user (urutan ketergantungan & referensi melingkar ditangani evaluator)
+    changes = {}
+    for (r, c), v in cell_formula.evaluate_all(records, user).items():
+        if key == (r, c) or records[r][c] != v:
+            changes[(r, c)] = v
+        records[r][c] = v
+    if not is_formula:
+        changes[key] = value
+
+    db.update_working_data(file_id, sheet_name, records, columns)
+    db.update_formula_cells(file_id, sheet_name, formula_cells)
+    return {
+        "total_rows": len(records),
+        "total_cols": len(columns),
+        "columns": columns,
+        "changes": [{"r": r, "c": c, "v": v} for (r, c), v in changes.items()],
+        "formula_cells": _formula_cells_view(formula_cells, dirty),
     }
 
 
