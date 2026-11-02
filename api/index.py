@@ -78,7 +78,7 @@ def _error_page(msg):
         "<!doctype html><html lang='id'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>"
         "<link rel='icon' href='/static/favicon.svg' type='image/svg+xml'>"
-        "<title>Ups — Meja Data</title></head>"
+        "<title>Ups — Talkins</title></head>"
         "<body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;"
         "padding:0 1.25rem;text-align:center;color:#222\">"
         "<h1 style='font-size:1.4rem'>Ups, ada kendala</h1>"
