@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="max-upload-mb" content="{{ max_upload_mb }}">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<title>Cara Kerja — Talkins</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/how.css">
+</head>
+<body>
+
+{% include "partials/navbar.html" %}
+
+<main class="how">
+  <header class="how-head">
+    <span class="how-kicker" data-i18n="how.kicker">5 langkah</span>
+    <h1 data-i18n="how.title">Cara kerja Talkins</h1>
+    <p class="lede" data-i18n="how.lede">Dari file Excel ke jawaban, rumus, dan slide. File aslimu tidak pernah tersentuh.</p>
+    <nav class="how-jump" aria-label="Langkah">
+      <a href="#langkah-1">01 <span data-i18n="how.s1.short">Unggah</span></a>
+      <a href="#langkah-2">02 <span data-i18n="how.s2.short">Rapikan</span></a>
+      <a href="#langkah-3">03 <span data-i18n="how.s3.short">Rumus</span></a>
+      <a href="#langkah-4">04 <span data-i18n="how.s4.short">Tanya</span></a>
+      <a href="#langkah-5">05 <span data-i18n="how.s5.short">Hasil</span></a>
+    </nav>
+  </header>
+
+  <ol class="how-steps">
+
+    <li class="how-step" id="langkah-1">
+      <div class="how-copy">
+        <span class="how-num">01</span>
+        <h2 data-i18n="how.s1.title">Unggah file Excel-mu</h2>
+        <p data-i18n="how.s1.text">Tarik file .xlsx ke Ruang unggah, atau tempel link. File yang besar bisa lewat Google Drive. Talkins langsung membuat salinan kerja di cloud, jadi file di komputermu tidak disentuh.</p>
+      </div>
+      <div class="how-visual" aria-hidden="true">
+        <div class="hv-drop">
+          <span class="hv-file">penjualan.xlsx</span>
+          <span class="hv-arrow">↓</span>
+          <span class="hv-copy"><span class="hv-dot"></span><span data-i18n="how.s1.tag">Salinan kerja dibuat</span></span>
+        </div>
+      </div>
+    </li>
+
+    <li class="how-step" id="langkah-2">
+      <div class="how-copy">
+        <span class="how-num">02</span>
+        <h2 data-i18n="how.s2.title">Lihat dan rapikan datanya</h2>
+        <p data-i18n="how.s2.text">Sheet tampil persis seperti di Excel: baris 1, 2, 3 dan kolom A, B, C. Rapikan lewat toolbar, lalu lanjut. Salah langkah? Satu klik untuk kembali ke data awal.</p>
+      </div>
+      <div class="how-visual" aria-hidden="true">
+        <div class="hv-chips">
+          <span data-i18n="workspace.toolbar.dropna">Buang baris kosong</span>
+          <span data-i18n="workspace.toolbar.dedupe">Buang duplikat</span>
+          <span data-i18n="workspace.toolbar.sort">Urutkan kolom</span>
+          <span data-i18n="workspace.toolbar.filter">Filter baris</span>
+          <span data-i18n="workspace.toolbar.castnumeric">Ubah ke angka</span>
+          <span class="hv-chip-alt" data-i18n="workspace.btnReset">Reset ke asli</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="how-step" id="langkah-3">
+      <div class="how-copy">
+        <span class="how-num">03</span>
+        <h2 data-i18n="how.s3.title">Pilih sel, dapat saran rumus</h2>
+        <p data-i18n="how.s3.text">Blok beberapa sel lalu buka tab Rumus. Talkins menyarankan rumus Excel lengkap dengan hasilnya.</p>
+        <ul class="how-sub">
+          <li data-i18n="how.s3.a">Klik Salin pada rumus yang kamu mau.</li>
+          <li data-i18n="how.s3.b">Klik sel mana saja, termasuk sel yang masih kosong.</li>
+          <li data-i18n="how.s3.c">Tekan Ctrl+V. Rumus langsung dihitung dan hasilnya muncul di sel itu.</li>
+        </ul>
+      </div>
+      <div class="how-visual" aria-hidden="true">
+        <div class="hv-grid">
+          <span class="hv-h"></span><span class="hv-h">A</span><span class="hv-h">B</span>
+          <span class="hv-r">1</span><span>Budi</span><span class="hv-n">100</span>
+          <span class="hv-r">2</span><span>Sari</span><span class="hv-n">250,5</span>
+          <span class="hv-r">3</span><span>Andi</span><span class="hv-n">75</span>
+          <span class="hv-r">4</span><span class="hv-muted">…</span><span class="hv-n hv-result">425,5</span>
+        </div>
+        <div class="hv-formula"><code>=SUM(B1:B3)</code><span class="hv-arrow-r">→ B4</span></div>
+      </div>
+    </li>
+
+    <li class="how-step" id="langkah-4">
+      <div class="how-copy">
+        <span class="how-num">04</span>
+        <h2 data-i18n="how.s4.title">Ngobrol dan lihat rekap</h2>
+        <p data-i18n="how.s4.text">Tanya apa saja soal isi data di tab Chat. Tab Rekap merangkum kesehatan data: sel kosong, pencilan, dan komposisi kategori.</p>
+      </div>
+      <div class="how-visual" aria-hidden="true">
+        <div class="hv-chat">
+          <span class="hv-bubble hv-user" data-i18n="how.s4.q">Kota mana yang totalnya paling besar?</span>
+          <span class="hv-bubble hv-bot" data-i18n="how.s4.a">Makassar, total 350,5.</span>
+          <span class="hv-note" data-i18n="how.example">contoh</span>
+        </div>
+      </div>
+    </li>
+
+    <li class="how-step" id="langkah-5">
+      <div class="how-copy">
+        <span class="how-num">05</span>
+        <h2 data-i18n="how.s5.title">Jadikan slide atau unduh</h2>
+        <p data-i18n="how.s5.text">Ubah datamu jadi slide, atau unduh hasil kerjamu sebagai file Excel baru. File aslimu tetap seperti semula.</p>
+      </div>
+      <div class="how-visual" aria-hidden="true">
+        <div class="hv-actions">
+          <span class="hv-btn hv-btn-main" data-i18n="workspace.btnSlides">Jadikan slide</span>
+          <span class="hv-btn" data-i18n="workspace.btnDownload">Unduh salinan</span>
+        </div>
+      </div>
+    </li>
+
+  </ol>
+
+  <section class="strip how-safe" aria-labelledby="amanTitle">
+    <div class="strip-row">
+      <span class="strip-index" id="amanTitle" data-i18n="how.safe.title">Aman untuk file aslimu</span>
+      <p data-i18n="how.safe.1">File di komputermu tidak pernah diubah. Yang kamu kerjakan adalah salinan di cloud.</p>
+    </div>
+    <div class="strip-row">
+      <span class="strip-index" data-i18n="how.safe.t2">Bisa diulang</span>
+      <p data-i18n="how.safe.2">Semua perubahan terjadi di salinan kerja. Reset ke asli mengembalikannya kapan saja.</p>
+    </div>
+    <div class="strip-row">
+      <span class="strip-index" data-i18n="how.safe.t3">Hasil jadi file baru</span>
+      <p data-i18n="how.safe.3">Unduh salinan menghasilkan file Excel baru, bukan menimpa file lamamu.</p>
+    </div>
+  </section>
+
+  <section class="how-faq">
+    <h2 data-i18n="how.faq.title">Pertanyaan umum</h2>
+    <details>
+      <summary data-i18n="how.faq.q1">Rumus apa saja yang bisa ditempel ke sel?</summary>
+      <p data-i18n="how.faq.a1">Semua rumus yang disarankan tab Rumus (SUM, AVERAGE, COUNTIF, SUMIF, VLOOKUP, dan lainnya), plus yang umum dipakai seperti IF, IFERROR, ROUND, TEXT, dan LEFT/RIGHT/MID. Pemisah argumen boleh koma atau titik koma. Rumus yang merujuk sheet lain belum didukung.</p>
+    </details>
+    <details>
+      <summary data-i18n="how.faq.q2">Bagaimana kalau rumus yang kutempel salah?</summary>
+      <p data-i18n="how.faq.a2">Pesan galat muncul dan kotak edit sel tetap terbuka supaya bisa kamu perbaiki. Galat hitungan seperti #DIV/0! ditampilkan di sel, sama seperti Excel.</p>
+    </details>
+    <details>
+      <summary data-i18n="how.faq.q3">Kenapa rumus saya berubah jadi angka biasa setelah mengurutkan?</summary>
+      <p data-i18n="how.faq.a3">Urutkan, filter, buang duplikat, dan hapus kolom menggeser posisi sel, jadi alamat di dalam rumus tidak berlaku lagi. Hasil hitungnya tetap ada sebagai angka biasa.</p>
+    </details>
+    <details>
+      <summary data-i18n="how.faq.q4">File saya besar, bagaimana mengunggahnya?</summary>
+      <p data-i18n="how.faq.a4">Kalau melewati batas unggah langsung, pakai link atau unggah lewat Google Drive dari Ruang unggah.</p>
+    </details>
+  </section>
+
+  <section class="how-cta">
+    <h2 data-i18n="how.cta.title">Siap mencobanya?</h2>
+    {% if current_user %}
+    <a href="/dashboard" class="btn btn-primary btn-cta" data-i18n="index.hero.cta">Buka Dashboard</a>
+    {% else %}
+    <a href="/login?mode=register" class="btn btn-primary btn-cta" data-i18n="index.hero.ctaGuest">Daftar Gratis untuk Mulai</a>
+    {% endif %}
+  </section>
+</main>
+
+{% include "partials/footer.html" %}
+
+<script src="/static/js/http.js"></script>
+<script src="/static/js/preloader.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/router.js"></script>
+</body>
+</html>
