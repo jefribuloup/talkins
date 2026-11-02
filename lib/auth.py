@@ -107,7 +107,8 @@ def current_user():
 
 def _login(user, adopt_from, notice=None):
     """Tandai sesi sebagai login. Dipanggil hanya setelah identitas terverifikasi.
-    `notice` ("registered" | "login") ditampilkan sebagai notifikasi sekali pakai di halaman tujuan."""
+    `notice` ("registered" | "login") ditampilkan sebagai notifikasi sekali pakai di halaman tujuan.
+    Keluar (logout) sengaja tanpa notifikasi."""
     sid = _user_session_id(user["id"])
     if adopt_from and not str(adopt_from).startswith("user:"):
         db.adopt_session(adopt_from, sid)  # file & chat tamu -> akun
@@ -489,7 +490,6 @@ def register_routes(app):
     def auth_logout():
         session.clear()
         session["session_id"] = str(uuid.uuid4())  # kembali jadi tamu baru
-        session["notice"] = "logout"
         # Dipanggil lewat fetch (tanpa reload) -> JSON; form biasa (tanpa JS) -> pengalihan seperti dulu
         if "application/json" in request.headers.get("Accept", ""):
             return jsonify({"ok": True, "redirect": "/"})
