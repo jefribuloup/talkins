@@ -1,0 +1,261 @@
+/* Halaman Cara Kerja. Memakai token warna dari main.css (otomatis mengikuti tema terang/gelap). */
+
+.how {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 32px;
+}
+
+.how-head { margin-bottom: 40px; }
+
+.how-kicker {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+  padding: 3px 10px;
+  margin-bottom: 18px;
+}
+
+.how-head h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(34px, 5vw, 52px);
+  line-height: 1.05;
+  margin: 0 0 16px;
+}
+
+.how-head .lede { margin-bottom: 24px; }
+
+/* Lompat cepat ke langkah */
+.how-jump { display: flex; flex-wrap: wrap; gap: 8px; }
+.how-jump a {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-muted);
+  text-decoration: none;
+  border: 1px solid var(--grid-line);
+  padding: 6px 12px;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+.how-jump a span { color: var(--text); font-family: var(--font-body); }
+.how-jump a:hover { color: var(--accent); border-color: var(--accent); }
+
+/* ---------- Langkah ---------- */
+
+.how-steps { list-style: none; margin: 0; padding: 0; }
+
+.how-step {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: 40px;
+  align-items: center;
+  padding: 40px 0;
+  border-top: 1px solid var(--grid-line);
+  scroll-margin-top: 80px;
+  animation: how-rise 0.5s ease both;
+}
+.how-step:nth-child(2) { animation-delay: 0.06s; }
+.how-step:nth-child(3) { animation-delay: 0.12s; }
+.how-step:nth-child(4) { animation-delay: 0.18s; }
+.how-step:nth-child(5) { animation-delay: 0.24s; }
+@keyframes how-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+.how-num {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 10px;
+}
+.how-copy h2 {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 3vw, 28px);
+  line-height: 1.15;
+  margin: 0 0 12px;
+}
+.how-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 15.5px;
+  line-height: 1.65;
+  max-width: 52ch;
+}
+.how-sub {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: sub;
+  max-width: 52ch;
+}
+.how-sub li {
+  counter-increment: sub;
+  position: relative;
+  padding: 7px 0 7px 32px;
+  color: var(--text);
+  font-size: 14.5px;
+  line-height: 1.5;
+}
+.how-sub li::before {
+  content: counter(sub);
+  position: absolute;
+  left: 0;
+  top: 7px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: #10130a;
+  background: var(--accent);
+}
+
+/* ---------- Ilustrasi mini (CSS murni) ---------- */
+
+.how-visual {
+  background: var(--panel);
+  border: 1px solid var(--grid-line);
+  padding: 22px;
+  min-height: 170px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.hv-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 12px;
+  border: 1px dashed var(--accent-dim);
+}
+.hv-file { color: var(--text); }
+.hv-arrow, .hv-arrow-r { color: var(--accent); }
+.hv-copy { display: inline-flex; align-items: center; gap: 8px; color: var(--positive); font-family: var(--font-body); }
+.hv-dot { width: 8px; height: 8px; background: var(--positive); display: inline-block; }
+
+.hv-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.hv-chips span {
+  border: 1px solid var(--grid-line);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 12.5px;
+  padding: 6px 10px;
+}
+.hv-chips .hv-chip-alt { border-color: var(--accent-dim); color: var(--accent); }
+
+.hv-grid {
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr;
+  border-top: 1px solid var(--grid-line);
+  border-left: 1px solid var(--grid-line);
+}
+.hv-grid span {
+  padding: 6px 10px;
+  border-right: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  color: var(--text);
+}
+.hv-grid .hv-h, .hv-grid .hv-r { background: var(--panel-raised); color: var(--text-muted); text-align: center; padding: 6px 4px; }
+.hv-grid .hv-n { text-align: right; }
+.hv-grid .hv-muted { color: var(--text-muted); }
+.hv-grid .hv-result {
+  background: rgba(232, 216, 115, 0.22);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  animation: hv-pulse 2.4s ease-in-out infinite;
+}
+@keyframes hv-pulse { 50% { background: rgba(232, 216, 115, 0.4); } }
+
+.hv-formula { display: flex; align-items: center; gap: 10px; }
+.hv-formula code {
+  background: var(--panel-raised);
+  border: 1px solid var(--grid-line);
+  color: var(--accent);
+  padding: 4px 10px;
+}
+
+.hv-chat { display: flex; flex-direction: column; gap: 8px; }
+.hv-bubble {
+  max-width: 85%;
+  padding: 9px 12px;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: 1px solid var(--grid-line);
+}
+.hv-user { align-self: flex-end; background: var(--panel-raised); color: var(--text); }
+.hv-bot { align-self: flex-start; border-color: var(--accent-dim); color: var(--text); }
+.hv-note { align-self: flex-end; font-size: 11.5px; color: var(--text-muted); }
+
+.hv-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.hv-btn {
+  border: 1px solid var(--grid-line);
+  background: var(--panel-raised);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 9px 14px;
+}
+.hv-btn-main { background: var(--accent); border-color: var(--accent); color: #10130a; }
+
+/* ---------- Aman, FAQ, CTA ---------- */
+
+.how-safe { max-width: none; margin-top: 8px; }
+
+.how-faq { padding: 48px 0 16px; max-width: 760px; }
+.how-faq h2, .how-cta h2 {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 3vw, 28px);
+  margin: 0 0 18px;
+}
+.how-faq details { border-top: 1px solid var(--grid-line); }
+.how-faq details:last-of-type { border-bottom: 1px solid var(--grid-line); }
+.how-faq summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 16px 28px 16px 0;
+  position: relative;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.how-faq summary::-webkit-details-marker { display: none; }
+.how-faq summary::after {
+  content: "+";
+  position: absolute;
+  right: 4px;
+  top: 14px;
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--accent);
+}
+.how-faq details[open] summary::after { content: "–"; }
+.how-faq summary:hover { color: var(--accent); }
+.how-faq details p {
+  margin: 0 0 18px;
+  color: var(--text-muted);
+  line-height: 1.65;
+  font-size: 14.5px;
+}
+
+.how-cta { padding: 40px 0 24px; text-align: left; }
+
+@media (max-width: 860px) {
+  .how { padding: 36px 20px 24px; }
+  .how-step { grid-template-columns: 1fr; gap: 20px; padding: 30px 0; }
+  .how-visual { min-height: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .how-step, .hv-grid .hv-result { animation: none; }
+}
