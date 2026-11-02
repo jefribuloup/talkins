@@ -1,7 +1,12 @@
-{% if flash_notice in ("registered", "login", "logout") %}
+{% if flash_notice in ("registered", "login") %}
+{% set toast_name = (current_user.name or current_user.username or current_user.email) if current_user else "" %}
 <div class="toast toast-success" role="status" aria-live="polite">
   <span class="toast-icon" aria-hidden="true">✓</span>
-  <span class="toast-text" data-i18n="notice.{{ flash_notice }}">{% if flash_notice == "registered" %}Pendaftaran berhasil! Selamat datang di Meja Data.{% elif flash_notice == "logout" %}Kamu sudah keluar. Sampai jumpa lagi!{% else %}Berhasil masuk. Selamat datang kembali!{% endif %}</span>
+  {% if flash_notice == "login" %}
+  <span class="toast-text"><span data-i18n="notice.loginPrefix">Hy</span> <strong class="toast-name">{{ toast_name }}</strong> <span data-i18n="notice.loginSuffix">selamat datang kembali</span></span>
+  {% else %}
+  <span class="toast-text" data-i18n="notice.registered">Pendaftaran berhasil! Selamat datang di Meja Data.</span>
+  {% endif %}
   <button type="button" class="toast-close" aria-label="Tutup">×</button>
 </div>
 {% endif %}
