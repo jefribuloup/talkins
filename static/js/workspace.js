@@ -108,6 +108,7 @@
   const COL_W = 96;          // lebar standar kolom KOSONG (px)
   const MIN_FILLED_W = 48;   // lebar minimum kolom yang berisi data
   const MAX_FILLED_W = 420;  // lebar maksimum kolom yang berisi data
+  const MAX_COL_CHARS = 60;  // samakan dengan MAX_COL_CHARS di server
   const GUTTER_W = 52;       // lebar kolom nomor baris
   const HEAD_H = 26;         // tinggi baris huruf kolom
   const MAX_ROWS = 1048576;  // batas Excel
@@ -196,6 +197,14 @@
     return (_letterCache[idx] = out);
   }
 
+  // Teks yang tampil di sel (samakan dengan _display_text di server)
+  function cellText(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "boolean") return v ? "TRUE" : "FALSE";
+    return String(v);
+  }
+
+  let colChars = [];          // jumlah karakter terpanjang tiap kolom data (dari server, diperbarui saat sel diedit)
   // ---------- Lebar kolom dinamis ----------
   // Kolom yang berisi data melebar mengikuti teks terpanjangnya (batas MIN..MAX_FILLED_W).
   // Kolom yang masih kosong tetap selebar standar (COL_W), seperti Excel.
@@ -257,6 +266,11 @@
     }
     if (gen !== state.gen) return;
 
+    if (edit.active) {          // editor sel yang sedang terbuka ditutup saat data dimuat ulang
+      edit.active = false;
+      editorEl.blur();
+      editorEl.hidden = true;
+    }
     state.meta = data;
     state.blocks = new Map([[0, data.rows || []]]);
     state.loading = new Map();
@@ -267,7 +281,8 @@
     state.lastWin = null;
 
     // Awal: data + sedikit baris/kolom kosong (seperti Excel). Sisanya muncul saat user scroll.
-    computeColWidths(data.col_chars);
+    colChars = (data.col_chars || []).slice();
+    computeColWidths(colChars);
     state.viewRows = Math.min(MAX_ROWS, Math.max(MIN_ROWS, data.total_rows + PAD_ROWS));
     state.viewCols = Math.min(MAX_COLS, Math.max(MIN_COLS, data.total_cols + PAD_COLS));
     tableWrap.scrollTop = 0;
@@ -501,7 +516,7 @@
         if (isSelected(r, c)) cls += " cell-selected";
         if (state.precedents.has(ck)) cls += " cell-precedent";
         tr += `<td${cls ? ` class="${cls.trim()}"` : ""} data-row="${r}" data-col="${c}">${
-          v === null || v === undefined ? "" : escapeHtml(String(v))
+          escapeHtml(cellText(v))
         }</td>`;
       }
       if (rightSpacer) tr += `<td class="spacer"></td>`;
@@ -602,6 +617,209 @@
 
   // Listener global dibatalkan otomatis oleh router saat user pindah page (tanpa reload)
   const pageSignal = window.MejaRouter ? window.MejaRouter.signal : undefined;
+
+  // ---------- Isi sel langsung: nilai biasa atau rumus hasil paste dari tab Rumus ----------
+  // Pakai: klik satu sel (boleh yang kosong) lalu Ctrl+V untuk menempel rumus yang disalin dari
+  // tab Rumus. Bisa juga dobel-klik / Enter / F2 / langsung mengetik untuk membuka editor.
+  // Teks berawalan "=" dihitung server sebagai rumus Excel; hasilnya jadi nilai sel.
+
+  const editorEl = document.createElement("input");
+  editorEl.type = "text";
+  editorEl.className = "cell-editor";
+  editorEl.hidden = true;
+  editorEl.autocomplete = "off";
+  editorEl.spellcheck = false;
+  tableWrap.appendChild(editorEl);
+
+  const edit = { active: false, r: -1, c: -1, original: "" };
+
+  // Sel tujuan = sel yang dipilih (hanya bila tepat satu sel)
+  function singleTarget() {
+    if (selCount() !== 1) return null;
+    const x = rects()[0];
+    return { r: x.r1, c: x.c1 };
+  }
+
+  function userEntry(r, c) {
+    const row = state.meta && state.meta.formula_cells && state.meta.formula_cells[String(r)];
+    const e = row && row[idxToLetters(c)];
+    return e && typeof e === "object" && e.u ? e : null;
+  }
+
+  // Isi editor: rumus aslinya kalau sel hasil rumus isian, selain itu nilai sel
+  function cellInputText(r, c) {
+    const e = userEntry(r, c);
+    return e ? e.f : cellText(getVal(r, c));
+  }
+
+  function positionEditor() {
+    const w = Math.max(colW(edit.c), Math.min(520, Math.ceil(editorEl.value.length * measureCharW()) + 30));
+    editorEl.style.left = GUTTER_W + colLeft(edit.c) + "px";
+    editorEl.style.top = HEAD_H + edit.r * ROW_H + "px";
+    editorEl.style.width = w + "px";
+    editorEl.style.height = ROW_H + "px";
+  }
+
+  function openEditor(r, c, text, original) {
+    edit.active = true;
+    edit.r = r;
+    edit.c = c;
+    edit.original = original;
+    editorEl.value = text;
+    editorEl.hidden = false;
+    positionEditor();
+    editorEl.focus();
+    editorEl.setSelectionRange(text.length, text.length);
+  }
+
+  async function startEdit(r, c, initial) {
+    if (!state.meta) return;
+    if (edit.active) {
+      const ok = await finishEdit(true);
+      if (!ok) return;
+    }
+    await ensureBlocks(r, r);
+    state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, r + 2));
+    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, c + 2));
+    scrollToCell(r, c);
+    const current = cellInputText(r, c);
+    openEditor(r, c, initial !== undefined ? initial : current, current);
+  }
+
+  // Tutup editor. commit=true -> simpan ke server. Return true kalau editor berhasil ditutup
+  // (galat rumus -> pesan tampil dan editor dibuka lagi supaya bisa diperbaiki).
+  async function finishEdit(commit) {
+    if (!edit.active) return true;
+    const { r, c, original } = edit;
+    const text = editorEl.value;
+    edit.active = false;      // sebelum blur, supaya event blur tidak memicu simpan dua kali
+    editorEl.blur();          // lepaskan fokus supaya tombol keyboard & paste berikutnya sampai ke grid
+    editorEl.hidden = true;
+    if (!commit || text === original) return true;
+    const ok = await commitCell(r, c, text);
+    if (!ok) openEditor(r, c, text, original);
+    return ok;
+  }
+
+  async function commitCell(r, c, text) {
+    const gen = state.gen;
+    try {
+      const res = await fetch(api("/cell"), {
+        method: "POST",
+        noLoader: true,   // edit sel cepat, tidak perlu preloader layar penuh
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sheet: state.sheet, row: r, col: c, input: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
+      if (gen === state.gen) applyCellResult(data);
+      return true;
+    } catch (err) {
+      alert(err.message);
+      return false;
+    }
+  }
+
+  // Tulis nilai ke cache blok lokal (blok yang belum dimuat nanti diambil dari server, sudah terbaru)
+  function setLocal(r, c, v) {
+    const blk = state.blocks.get(Math.floor(r / BLOCK));
+    if (blk) {
+      const i = r % BLOCK;
+      while (blk.length <= i) blk.push([]);
+      if (!blk[i]) blk[i] = [];
+      blk[i][c] = v;
+    }
+    if (isFilled(v)) colChars[c] = Math.max(colChars[c] || 0, Math.min(MAX_COL_CHARS, cellText(v).length));
+  }
+
+  function applyCellResult(data) {
+    const m = state.meta;
+    m.total_rows = data.total_rows;
+    m.total_cols = data.total_cols;
+    m.columns = data.columns;
+    m.formula_cells = data.formula_cells || {};
+    while (colChars.length < m.total_cols) colChars.push(0);
+    (data.changes || []).forEach((ch) => setLocal(ch.r, ch.c, ch.v));
+    stats.cache.clear();
+    state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, m.total_rows + PAD_ROWS));
+    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, m.total_cols + PAD_COLS));
+    computeColWidths(colChars);
+    renderGrid(true);
+    renderGridInfo();
+    renderFormulaPanel();
+    markRecapStale();
+  }
+
+  function moveSelection(r, c) {
+    r = Math.max(0, r);
+    c = Math.max(0, c);
+    state.viewRows = Math.max(state.viewRows, Math.min(MAX_ROWS, r + 2));
+    state.viewCols = Math.max(state.viewCols, Math.min(MAX_COLS, c + 2));
+    applySelection(normRect(r, c, r, c), {}, { anchor: { r, c }, single: true });
+    scrollToCell(r, c);
+  }
+
+  editorEl.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const { r, c } = edit;
+      finishEdit(true).then((ok) => { if (ok) moveSelection(r + 1, c); });
+    } else if (e.key === "Tab") {
+      e.preventDefault();
+      const { r, c } = edit;
+      finishEdit(true).then((ok) => { if (ok) moveSelection(r, e.shiftKey ? c - 1 : c + 1); });
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      finishEdit(false);
+    }
+  });
+  editorEl.addEventListener("input", positionEditor);
+  editorEl.addEventListener("blur", () => { if (edit.active) finishEdit(true); });
+
+  tableBody.addEventListener("dblclick", (e) => {
+    const cell = e.target.closest("td[data-col]");
+    if (!cell || !state.meta) return;
+    startEdit(Number(cell.dataset.row), Number(cell.dataset.col));
+  });
+
+  // Tombol keyboard/paste hanya jalan kalau fokus tidak sedang di kolom isian (chat, modal, dll.)
+  function keysBlocked() {
+    const el = document.activeElement;
+    const tag = (el && el.tagName) || "";
+    return /INPUT|TEXTAREA|SELECT/.test(tag) || !!(el && el.isContentEditable) ||
+      !!document.querySelector(".modal.open");
+  }
+
+  document.addEventListener("paste", (e) => {
+    if (!state.meta || edit.active || keysBlocked() || !selCount()) return;
+    const text = ((e.clipboardData && e.clipboardData.getData("text/plain")) || "").replace(/[\r\n]+$/, "");
+    if (!text) return;
+    e.preventDefault();
+    if (/[\t\r\n]/.test(text)) {
+      alert(t("workspace.edit.pasteOne"));
+      return;
+    }
+    const target = singleTarget();
+    if (!target) {
+      alert(t("workspace.edit.pickOne"));
+      return;
+    }
+    commitCell(target.r, target.c, text);
+  }, { signal: pageSignal });
+
+  document.addEventListener("keydown", (e) => {
+    if (!state.meta || edit.active || keysBlocked() || e.ctrlKey || e.metaKey || e.altKey) return;
+    const target = singleTarget();
+    if (!target) return;
+    if (e.key === "Enter" || e.key === "F2") {
+      e.preventDefault();
+      startEdit(target.r, target.c);
+    } else if (e.key.length === 1 && e.key !== " ") {
+      e.preventDefault();
+      startEdit(target.r, target.c, e.key);
+    }
+  }, { signal: pageSignal });
 
   // Tinggi area kerja = layar dikurangi navbar + bar aksi. Footer sengaja TIDAK ikut dihitung:
   // ia tetap di bawah (lewat scroll), jadi tabel & chat bisa memakai hampir seluruh tinggi layar.
