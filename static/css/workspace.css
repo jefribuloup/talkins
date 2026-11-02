@@ -76,7 +76,27 @@
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
+  position: relative;     /* acuan posisi editor sel */
 }
+
+/* Editor sel (isi nilai / tempel rumus). z-index 0: tetap di bawah header & nomor baris yang sticky. */
+.cell-editor {
+  position: absolute;
+  z-index: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0 7px;
+  height: 26px;
+  line-height: 22px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 2px solid var(--accent);
+  border-radius: 0;
+  outline: none;
+}
+.cell-editor[hidden] { display: none; }
 
 /* Grid virtual gaya Excel: lebar kolom & tinggi baris TETAP (harus sama dgn ROW_H/COL_W/
    GUTTER_W/HEAD_H di workspace.js), supaya posisi scroll cocok dengan baris/kolom yang dirender. */
