@@ -18,39 +18,39 @@
 (function () {
   "use strict";
   if (window.MejaDrive) return; // router bisa memuat ulang script saat pindah halaman
-
+ 
   var SCOPE = "https://www.googleapis.com/auth/drive.file";
   var GIS_SRC = "https://accounts.google.com/gsi/client";
   var DEFAULT_LIMIT_BYTES = 4 * 1024 * 1024;
-
+ 
   var cfgPromise = null;
   var gisPromise = null;
   var cachedToken = null; // { value, exp }
-
+ 
   function t(key, vars) {
     var s = window.MejaDataI18n ? window.MejaDataI18n.t(key) : key;
     return String(s).replace(/\{(\w+)\}/g, function (_, k) {
       return vars && vars[k] !== undefined ? vars[k] : "{" + k + "}";
     });
   }
-
+ 
   function fail(code, vars) {
     var err = new Error(t("drive.err." + code, vars));
     err.code = code;
     return err;
   }
-
+ 
   function mb(bytes) {
     return (bytes / (1024 * 1024)).toFixed(1);
   }
-
+ 
   // File dianggap "besar" bila melewati batas unggahan server (meta max-upload-mb, via MejaHttp)
   function isLarge(file) {
     if (!file || typeof file.size !== "number") return false;
     if (window.MejaHttp && window.MejaHttp.checkUploadSize) return !!window.MejaHttp.checkUploadSize(file);
     return file.size > DEFAULT_LIMIT_BYTES;
   }
-
+ 
   function getConfig() {
     if (!cfgPromise) {
       cfgPromise = fetch("/api/drive/config", { credentials: "same-origin" })
@@ -67,7 +67,7 @@
     }
     return cfgPromise;
   }
-
+ 
   function loadGis() {
     if (window.google && window.google.accounts && window.google.accounts.oauth2) return Promise.resolve();
     if (!gisPromise) {
@@ -82,12 +82,12 @@
     }
     return gisPromise;
   }
-
+ 
   // Siapkan di belakang layar (config + script Google) supaya popup izin cepat muncul saat file dipilih
   function prepare() {
     getConfig().then(function (cfg) { if (cfg && cfg.enabled) loadGis().catch(function () {}); }).catch(function () {});
   }
-
+ 
   function requestToken(clientId) {
     if (cachedToken && cachedToken.exp - Date.now() > 60 * 1000) return Promise.resolve(cachedToken.value);
     return new Promise(function (resolve, reject) {
@@ -104,13 +104,38 @@
           resolve(resp.access_token);
         },
         error_callback: function (e) {
-          reject(fail(e && (e.type === "popup_closed" || e.type === "popup_failed_to_open") ? "cancelled" : "auth"));
+          // popup_failed_to_open = popup diblokir browser (biasanya karena tidak dipicu klik langsung);
+          // BUKAN pembatalan oleh user, jadi dibedakan supaya bisa dicoba ulang lewat klik tombol.
+          var type = e && e.type;
+          reject(fail(type === "popup_closed" ? "cancelled" : type === "popup_failed_to_open" ? "popup" : "auth"));
         },
       });
       client.requestAccessToken({ prompt: "" });
     });
   }
-
+ 
+  // Popup izin Google hanya boleh dibuka dari klik user. Setelah memilih file lewat dialog OS atau
+  // drag & drop, "izin klik" itu sudah hangus, jadi popup sering diblokir. Bila terjadi, minta user
+  // menekan tombol (klik baru) lalu coba lagi.
+  function getToken(clientId, file) {
+    return requestToken(clientId).catch(function (err) {
+      if (!err || err.code !== "popup" || !window.MejaConfirm) throw err;
+      return window.MejaConfirm
+        .ask({
+          variant: "warn",
+          title: t("drive.perm.title"),
+          detail: file && file.name,
+          message: t("drive.perm.message"),
+          confirmLabel: t("drive.perm.confirm"),
+          cancelLabel: t("drive.perm.cancel"),
+        })
+        .then(function (ok) {
+          if (!ok) throw fail("cancelled");
+          return requestToken(clientId); // dipanggil tepat setelah klik tombol -> popup tidak diblokir
+        });
+    });
+  }
+ 
   // Unggah resumable langsung ke Google Drive. Mengembalikan id file di Drive.
   function uploadToDrive(file, token, onProgress) {
     return fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id", {
@@ -129,7 +154,7 @@
       }
       var sessionUri = res.ok ? res.headers.get("Location") : null;
       if (!sessionUri) throw fail("upload");
-
+ 
       return new Promise(function (resolve, reject) {
         var xhr = new XMLHttpRequest();
         xhr.open("PUT", sessionUri);
@@ -152,7 +177,7 @@
       });
     });
   }
-
+ 
   function uploadAndIngest(file, onStatus) {
     var say = function (m) { if (onStatus) onStatus(m); };
     var cfg;
@@ -167,7 +192,7 @@
         say(t("drive.status.auth"));
         return loadGis();
       })
-      .then(function () { return requestToken(cfg.client_id); })
+      .then(function () { return getToken(cfg.client_id, file); })
       .then(function (token) {
         say(t("drive.status.uploading", { percent: 0, size: mb(file.size) }));
         return uploadToDrive(file, token, function (p) {
@@ -189,7 +214,7 @@
         });
       });
   }
-
+ 
   window.MejaDrive = { isLarge: isLarge, prepare: prepare, uploadAndIngest: uploadAndIngest };
   prepare();
 })();
