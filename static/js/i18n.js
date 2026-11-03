@@ -411,7 +411,7 @@
       "index.hero.cta": "Open Dashboard",
       "index.section.howitworks": "How it works",
       "index.feature1.label": "Any sheet layout",
-      "index.feature1.text": "a single worksheet or multiple worksheets at once. All the rows and columns of your data are displayed exactly as they are, and you are free to explore them",
+      "index.feature1.text": "A single worksheet or multiple worksheets at once. All the rows and columns of your data are displayed exactly as they are, and you are free to explore them",
       "index.feature2.label": "A working copy, not your file",
       "index.feature2.text": "Every upload gets a cloud copy. Whatever you edit, filter, or clean is that copy — your local file stays exactly as it was.",
       "index.feature3.label": "Chat freely",
