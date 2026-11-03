@@ -91,7 +91,7 @@
       "footer.desc": "Ngobrol dengan file Excel-mu, rapikan datanya, dan ubah jadi slide — tanpa menyentuh file aslinya.",
       "footer.col.product": "Produk",
       "footer.col.account": "Akun",
-      "footer.col.project": "Proyek",
+      "footer.col.how": "Cara Kerja",
       "footer.rights": "Hak cipta dilindungi.",
 
       "index.hero.title": "Ajak ngobrol<br>file Excel-mu.",
@@ -398,7 +398,7 @@
       "footer.desc": "Chat with your Excel files, clean up your data, and turn it into slides — without ever touching the originals.",
       "footer.col.product": "Product",
       "footer.col.account": "Account",
-      "footer.col.project": "Project",
+      "footer.col.how": "How it works",
       "footer.rights": "All rights reserved.",
 
       "index.hero.title": "Chat with<br>your Excel files.",
