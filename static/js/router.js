@@ -209,7 +209,15 @@
         if (ctl.signal.aborted) return;
         swap(doc, finalUrl, push);
         return runPageScripts(doc).then(function () {
-          if (push || scrollTop) window.scrollTo(0, 0);
+          if (push || scrollTop) {
+            window.scrollTo(0, 0);
+            var hashId = url.indexOf("#") > -1 ? url.split("#")[1] : "";
+            if (hashId) {
+              try { hashId = decodeURIComponent(hashId); } catch (e) { /* biarkan apa adanya */ }
+              var target = document.getElementById(hashId);
+              if (target && target.scrollIntoView) target.scrollIntoView();
+            }
+          }
           progress("done");
         });
       })
