@@ -10,7 +10,9 @@ import secrets
 import sys
 import uuid
 
-from flask import Flask, request, jsonify, render_template, session, Response
+import time
+
+from flask import Flask, request, jsonify, render_template, session, Response, abort
 from markupsafe import escape
 from werkzeug.exceptions import HTTPException
 
@@ -48,6 +50,40 @@ auth.register_routes(app)
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
+
+
+# ---------- Kepemilikan file ----------
+# Semua route berparameter <file_id> (halaman workspace & seluruh /api/files/<id>/...) hanya
+# boleh diakses pemilik file: session["session_id"] harus sama dengan files.session_id
+# (uuid tamu, atau "user:<id>" setelah login). Tidak ada vs milik orang lain dijawab sama (404)
+# supaya keberadaan file tidak bisa ditebak. DELETE sudah dibatasi pemilik di SQL-nya sendiri.
+_OWNER_OK = {}            # (file_id, session_id) -> waktu kedaluwarsa; hanya hasil "boleh" yang di-cache
+_OWNER_OK_TTL = 30        # detik; menghemat 1 query DB di setiap scroll/preview
+_OWNER_OK_MAX = 2000
+
+
+def _forget_owner(file_id):
+    for k in [k for k in _OWNER_OK if k[0] == str(file_id)]:
+        _OWNER_OK.pop(k, None)
+
+
+@app.before_request
+def enforce_file_owner():
+    file_id = (request.view_args or {}).get("file_id")
+    if not file_id or request.method == "DELETE":
+        return None
+    sid = session.get("session_id")
+    key = (str(file_id), sid)
+    now = time.time()
+    if _OWNER_OK.get(key, 0) > now:
+        return None
+    owner = db.get_file_owner(file_id)
+    if owner is None or owner != sid:
+        abort(404)
+    if len(_OWNER_OK) >= _OWNER_OK_MAX:
+        _OWNER_OK.clear()
+    _OWNER_OK[key] = now + _OWNER_OK_TTL
+    return None
 
 
 # ---------- Pesan error ramah (bukan teks teknis) ----------
@@ -218,6 +254,7 @@ def list_files():
 def delete_file(file_id):
     session_id = session["session_id"]
     db.delete_file(session_id, file_id)
+    _forget_owner(file_id)
     return jsonify({"ok": True})
 
 
