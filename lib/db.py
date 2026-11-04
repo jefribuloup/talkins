@@ -5,6 +5,7 @@ dan 'working' (versi yang boleh dimanipulasi user). File lokal user TIDAK PERNAH
 """
 import os
 import json
+import uuid
 from datetime import datetime, timezone
 
 import psycopg2
@@ -547,6 +548,24 @@ def get_file(file_id):
     cur.close()
     conn.close()
     return dict(row) if row else None
+
+
+def get_file_owner(file_id):
+    """session_id pemilik file (uuid tamu atau 'user:<id>'), atau None kalau file tidak ada /
+    sudah dihapus / id bukan UUID yang valid."""
+    try:
+        fid = str(uuid.UUID(str(file_id)))
+    except (ValueError, TypeError, AttributeError):
+        return None
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT session_id FROM files WHERE id=%s AND status<>'deleted'", (fid,))
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        conn.close()
+    return row[0] if row else None
 
 
 def delete_file(session_id, file_id):
