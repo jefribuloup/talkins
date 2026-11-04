@@ -63,6 +63,11 @@ _SCHEMA_MIGRATIONS = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual_v2 ON users(lower(email)) WHERE provider = 'manual'",
     # Akun Google lama: isi password_hash dengan penanda "terkunci" (bukan hash asli, tidak bisa dipakai login)
     "UPDATE users SET password_hash = '" + GOOGLE_NO_PASSWORD + "' WHERE provider = 'google' AND password_hash IS NULL",
+    "CREATE TABLE IF NOT EXISTS rate_limits (key TEXT NOT NULL, bucket TEXT NOT NULL, window_id BIGINT NOT NULL, count INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (key, bucket, window_id))",
+    "CREATE INDEX IF NOT EXISTS idx_rate_limits_exp ON rate_limits(expires_at)",
+    "CREATE TABLE IF NOT EXISTS usage_events (id BIGSERIAL PRIMARY KEY, user_id TEXT, session_id TEXT, kind TEXT NOT NULL, credits INTEGER NOT NULL DEFAULT 0, tokens_in INTEGER, tokens_out INTEGER, model TEXT, provider TEXT, file_id TEXT, ok BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_events(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_events(session_id, created_at)",
 )
 _schema_ready = False
 
@@ -163,6 +168,21 @@ def init_db():
         ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT;
         DROP INDEX IF EXISTS idx_users_email_manual;
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual_v2 ON users(lower(email)) WHERE provider = 'manual';
+
+        CREATE TABLE IF NOT EXISTS rate_limits (
+            key TEXT NOT NULL, bucket TEXT NOT NULL, window_id BIGINT NOT NULL,
+            count INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ NOT NULL,
+            PRIMARY KEY (key, bucket, window_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_rate_limits_exp ON rate_limits(expires_at);
+        CREATE TABLE IF NOT EXISTS usage_events (
+            id BIGSERIAL PRIMARY KEY, user_id TEXT, session_id TEXT, kind TEXT NOT NULL,
+            credits INTEGER NOT NULL DEFAULT 0, tokens_in INTEGER, tokens_out INTEGER,
+            model TEXT, provider TEXT, file_id TEXT, ok BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_events(user_id, created_at);
+        CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_events(session_id, created_at);
         """
     )
     conn.commit()
