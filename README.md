@@ -118,19 +118,16 @@ file tersebut dan commit (jangan isi dengan nilai rahasia sungguhan).
    Vercel otomatis mengisi env var DATABASE_URL / POSTGRES_URL.
 2. Atau bikin manual di neon.tech, lalu ambil connection string (pooled) dan isi ke
    DATABASE_URL.
-3. Inisialisasi schema (tabel files, sheets, chat_messages) — jalankan sekali lewat
-   Python shell/endpoint sementara:
+3. Inisialisasi schema (tabel files, sheets, chat_messages) — jalankan sekali dari komputer sendiri
+   (BUKAN lewat endpoint web):
 
-   from lib import db
-   db.init_db()
-
-   Cara paling gampang: tambahkan endpoint sementara @app.route("/api/_init-db") yang
-   memanggil db.init_db(), akses sekali dari browser, lalu hapus lagi endpointnya.
+   export DATABASE_URL="postgresql://user:pass@host/db?sslmode=require"
+   python scripts/init_db.py
 
    Kolom yang ditambahkan belakangan (formula_columns, formula_cells, row_order_dirty,
    files.source, column_letters, original_meta) dimigrasikan otomatis: db.get_conn() menjalankan ALTER TABLE ... ADD COLUMN
-   IF NOT EXISTS sekali per proses. Jadi setelah update kode, tidak perlu membuka
-   /api/_init-db lagi. Kalau tabel belum ada sama sekali (database baru), init_db() tetap
+   IF NOT EXISTS sekali per proses. Jadi setelah update kode, tidak perlu menjalankan
+   skrip itu lagi. Kalau tabel belum ada sama sekali (database baru), scripts/init_db.py tetap
    diperlukan sekali untuk membuatnya.
 
 ## 2. API key LLM gratis
