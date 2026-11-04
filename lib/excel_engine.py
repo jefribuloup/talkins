@@ -21,6 +21,7 @@ from flask import send_file
 
 from lib import db
 from lib import cell_formula
+from lib import safe_fetch
 
 PAGE_SIZE = 50
 
@@ -253,16 +254,11 @@ def ingest_from_url(url, session_id):
     if dup:
         return _duplicate_response(dup)
 
-    try:
-        resp = requests.get(fetch_url, timeout=20, allow_redirects=True)
-        resp.raise_for_status()
-    except requests.RequestException:
-        raise ValueError(
-            "Gagal mengambil data dari link. Pastikan link bisa diakses publik "
-            "(Google Sheets: Share -> Anyone with the link -> Viewer)."
-        )
+    # Unduh lewat safe_fetch: hanya alamat publik (anti-SSRF), redirect diperiksa tiap hop,
+    # ukuran dibatasi (URL_MAX_MB, default 20) dan dibaca bertahap. Galat berupa ValueError ramah.
+    content, _final_url = safe_fetch.fetch_public_url(fetch_url)
 
-    return _ingest_bytes(resp.content, filename, session_id, source="url", source_key=fetch_url)
+    return _ingest_bytes(content, filename, session_id, source="url", source_key=fetch_url)
 
 
 # ---------- Ingest dari Google Drive (untuk file > batas body Vercel ±4,5 MB) ----------
