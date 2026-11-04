@@ -268,7 +268,7 @@ def polish_deck(deck):
         f"Topik/arahan user: {deck.get('title')}\nData slide:\n{json.dumps(facts, ensure_ascii=False)}"
     )
     text, _ = chat_engine._call_llm(
-        "Kamu penulis slide data yang akurat. Selalu balas JSON valid saja, tanpa markdown.", [], prompt)
+        "Kamu penulis slide data yang akurat. Selalu balas JSON valid saja, tanpa markdown.", [], prompt, kind="polish")
     cleaned = text.strip().strip("`")
     if cleaned.lower().startswith("json"):
         cleaned = cleaned[4:].strip()
