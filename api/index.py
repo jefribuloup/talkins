@@ -6,6 +6,7 @@ Struktur modular: logic berat ada di /lib, file ini cuma routing+orkestrasi
 """
 import os
 import re
+import secrets
 import sys
 import uuid
 
@@ -21,6 +22,7 @@ from lib import chat_engine
 from lib import formula_engine
 from lib import slide_engine
 from lib import auth
+from lib import guard
 
 app = Flask(
     __name__,
@@ -147,6 +149,9 @@ def workspace(file_id):
 def upload():
     if "file" not in request.files:
         return jsonify({"error": "Tidak ada file"}), 400
+    blocked = guard.guard("upload")
+    if blocked:
+        return blocked
     f = request.files["file"]
     session_id = session["session_id"]
     try:
@@ -161,6 +166,9 @@ def upload():
 
 @app.route("/api/upload-url", methods=["POST"])
 def upload_url():
+    blocked = guard.guard("upload")
+    if blocked:
+        return blocked
     url = (request.get_json(silent=True) or {}).get("url", "")
     session_id = session["session_id"]
     try:
@@ -186,6 +194,9 @@ def drive_config():
 def upload_drive():
     """File besar: sudah diunggah browser ke Google Drive user, di sini hanya diproses.
     Body: {"file_id": "...", "access_token": "..."} (token dipakai sekali untuk mengunduh, tidak disimpan)."""
+    blocked = guard.guard("upload")
+    if blocked:
+        return blocked
     data = request.get_json(silent=True) or {}
     session_id = session["session_id"]
     try:
@@ -234,6 +245,9 @@ def preview(file_id):
 
 @app.route("/api/files/<file_id>/recap", methods=["GET"])
 def recap(file_id):
+    blocked = guard.guard("heavy")
+    if blocked:
+        return blocked
     sheet = request.args.get("sheet")
     lang = request.args.get("lang", "id")
     try:
@@ -244,6 +258,9 @@ def recap(file_id):
 
 @app.route("/api/files/<file_id>/manipulate", methods=["POST"])
 def manipulate(file_id):
+    blocked = guard.guard("edit")
+    if blocked:
+        return blocked
     op = request.get_json(silent=True) or {}  # contoh: {"action": "drop_na", "sheet": "Sheet1", "columns": [...]}
     try:
         result = excel_engine.apply_operation(file_id, op)
@@ -255,6 +272,9 @@ def manipulate(file_id):
 @app.route("/api/files/<file_id>/cell", methods=["POST"])
 def set_cell(file_id):
     """Isi satu sel di working copy. Teks berawalan '=' dihitung sebagai rumus Excel."""
+    blocked = guard.guard("edit")
+    if blocked:
+        return blocked
     data = request.get_json(silent=True) or {}
     try:
         result = excel_engine.set_cell(
@@ -266,13 +286,42 @@ def set_cell(file_id):
 
 @app.route("/api/files/<file_id>/reset", methods=["POST"])
 def reset_working_copy(file_id):
+    blocked = guard.guard("edit")
+    if blocked:
+        return blocked
     excel_engine.reset_to_original(file_id)
     return jsonify({"ok": True})
 
 
 @app.route("/api/files/<file_id>/download", methods=["GET"])
 def download_working_copy(file_id):
+    blocked = guard.guard("heavy")
+    if blocked:
+        return blocked
     return excel_engine.export_working_copy(file_id)
+
+
+# ---------- API: Pemakaian AI ----------
+
+@app.route("/api/usage", methods=["GET"])
+def api_usage():
+    """Ringkasan pemakaian AI bulan berjalan milik pengguna ini."""
+    return jsonify(guard.usage_summary())
+
+
+@app.route("/api/admin/usage", methods=["GET"])
+def api_admin_usage():
+    """Laporan biaya per pengguna/model untuk admin. Dilindungi header X-Admin-Token (env ADMIN_TOKEN);
+    tanpa token yang benar dijawab 404 supaya keberadaannya tidak terlihat."""
+    expected = os.environ.get("ADMIN_TOKEN", "").strip()
+    given = request.headers.get("X-Admin-Token", "")
+    if not expected or not secrets.compare_digest(expected.encode(), given.encode()):
+        return Response(status=404)
+    try:
+        days = int(request.args.get("days", 30))
+    except ValueError:
+        days = 30
+    return jsonify(guard.admin_report(days=days))
 
 
 # ---------- API: Chat dengan data ----------
@@ -284,6 +333,10 @@ def chat(file_id):
     lang = body.get("lang", "id")  # bahasa antarmuka aktif (id/en)
     if not message:
         return jsonify({"error": "Tulis pertanyaanmu dulu, lalu kirim lagi."}), 400
+    blocked = guard.guard("chat", ai=True)
+    if blocked:
+        return blocked
+    guard.set_file(file_id)
     session_id = session["session_id"]
     try:
         reply = chat_engine.ask(session_id, file_id, message, lang)
@@ -305,6 +358,9 @@ def chat_history(file_id):
 @app.route("/api/files/<file_id>/export/slides", methods=["POST"])
 def export_slides(file_id):
     """Susun deck slide dari data (cepat, tanpa AI). Body: {topic, sheet, lang, theme}."""
+    blocked = guard.guard("heavy")
+    if blocked:
+        return blocked
     try:
         deck = slide_engine.build_deck(file_id, request.get_json(silent=True) or {})
     except Exception as e:
@@ -315,8 +371,15 @@ def export_slides(file_id):
 @app.route("/api/files/<file_id>/export/slides/polish", methods=["POST"])
 def polish_slides(file_id):
     """AI menulis ulang judul & poin slide (opsional, panggilan terpisah supaya deck tampil dulu)."""
+    deck = (request.get_json(silent=True) or {}).get("deck") or {}
+    if not deck.get("slides"):  # tolak sebelum menghitung kuota
+        return jsonify({"error": "Slide masih kosong, belum ada yang bisa dirapikan."}), 400
+    blocked = guard.guard("polish", ai=True)
+    if blocked:
+        return blocked
+    guard.set_file(file_id)
     try:
-        return jsonify(slide_engine.polish_deck((request.get_json(silent=True) or {}).get("deck") or {}))
+        return jsonify(slide_engine.polish_deck(deck))
     except Exception as e:
         return _error_response(e, "Asisten AI belum bisa merapikan slide sekarang. Slide aslinya tetap aman, coba lagi nanti.", 502)
 
@@ -328,6 +391,9 @@ def download_pptx(file_id):
     deck = body.get("deck") or {}
     if not deck.get("slides"):
         return jsonify({"error": "Slide masih kosong, belum ada yang bisa diunduh."}), 400
+    blocked = guard.guard("heavy")
+    if blocked:
+        return blocked
     try:
         data = slide_engine.render_pptx(deck, body.get("theme"))
     except Exception as e:
