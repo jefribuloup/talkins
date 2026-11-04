@@ -35,6 +35,7 @@ from flask import redirect, request, session, jsonify, render_template
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from lib import db
+from lib import guard
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -52,7 +53,7 @@ _DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
-_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/cara-kerja", "/api/me", "/favicon.ico")
+_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/cara-kerja", "/api/me", "/api/admin/usage", "/favicon.ico")
 
 
 def _client_id():
@@ -311,6 +312,9 @@ def register_routes(app):
     def auth_register():
         if not _csrf_ok():
             return _json_error("csrf", 403)
+        blocked = guard.check("auth_register", ip=guard.client_ip())
+        if blocked:
+            return _json_error("rate_limited", 429, minutes=max(1, round(blocked["retry_after"] / 60)))
         data = request.get_json(silent=True) or {}
         name = " ".join(str(data.get("name", "")).split())[:80]
         email = str(data.get("email", "")).strip().lower()
@@ -346,6 +350,9 @@ def register_routes(app):
     def auth_login():
         if not _csrf_ok():
             return _json_error("csrf", 403)
+        blocked = guard.check("auth_login", ip=guard.client_ip())
+        if blocked:
+            return _json_error("rate_limited", 429, minutes=max(1, round(blocked["retry_after"] / 60)))
         data = request.get_json(silent=True) or {}
         # Boleh diisi username ATAU email ("identifier"; "username" tetap diterima agar kompatibel)
         identifier = str(data.get("identifier") or data.get("username") or "").strip().lower()
