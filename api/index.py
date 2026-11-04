@@ -31,7 +31,27 @@ app = Flask(
     template_folder="../templates",
     static_folder="../static",
 )
-app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-change-me")
+
+
+def _load_secret_key():
+    """SECRET_KEY menandatangani cookie sesi. Di produksi (Vercel) wajib diisi nilai acak yang kuat:
+    kalau kosong / masih bawaan / terlalu pendek, aplikasi SENGAJA gagal start (fail-fast) daripada
+    jalan dengan kunci yang bisa ditebak. Di komputer lokal kunci bawaan dipakai untuk development."""
+    key = os.environ.get("SECRET_KEY", "")
+    prod = bool(os.environ.get("VERCEL") or os.environ.get("VERCEL_ENV")
+                or os.environ.get("FLASK_ENV", "").lower() == "production")
+    if not key or key == auth.DEFAULT_SECRET:
+        if prod:
+            raise RuntimeError(
+                "SECRET_KEY belum diisi (atau masih nilai bawaan). Isi env SECRET_KEY di Vercel dengan "
+                "string acak minimal 32 karakter, mis. hasil: python -c \"import secrets; print(secrets.token_hex(32))\"")
+        return auth.DEFAULT_SECRET
+    if prod and len(key) < 16:
+        raise RuntimeError("SECRET_KEY terlalu pendek (minimal 16 karakter, disarankan 32+).")
+    return key
+
+
+app.secret_key = _load_secret_key()
 
 MAX_UPLOAD_MB = 20
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
@@ -50,6 +70,47 @@ auth.register_routes(app)
 def ensure_session():
     if "session_id" not in session:
         session["session_id"] = str(uuid.uuid4())
+
+
+# ---------- Header keamanan ----------
+# CSP_MODE: "report-only" (default; hanya melaporkan pelanggaran di Console browser, tidak memblokir),
+# "enforce" (memblokir), atau "off". Disarankan: biarkan report-only dulu, buka semua halaman
+# (login, dashboard, workspace) dengan DevTools Console terbuka, lalu ubah ke "enforce" bila bersih.
+# 'unsafe-inline' dibutuhkan karena ada skrip inline (login/beranda) yang dijalankan router SPA
+# dan atribut style di HTML hasil render JS.
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/client",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/style",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https://*.googleusercontent.com",
+    "connect-src 'self' https://www.googleapis.com https://accounts.google.com/gsi/",
+    "frame-src https://accounts.google.com/gsi/",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self' https://accounts.google.com",
+    "frame-ancestors 'none'",
+])
+
+
+@app.after_request
+def add_security_headers(resp):
+    h = resp.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    h.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+    h.setdefault("Cross-Origin-Opener-Policy", "same-origin-allow-popups")  # tetap kompatibel dengan popup Google
+    if request.is_secure or request.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() == "https":
+        h.setdefault("Strict-Transport-Security", "max-age=31536000")
+    mode = os.environ.get("CSP_MODE", "report-only").strip().lower()
+    if mode == "enforce":
+        h.setdefault("Content-Security-Policy", CSP)
+    elif mode != "off":
+        h.setdefault("Content-Security-Policy-Report-Only", CSP)
+    if request.path.startswith("/api/"):
+        h.setdefault("Cache-Control", "no-store")  # data spreadsheet tidak disimpan di cache browser/proxy
+    return resp
 
 
 # ---------- Kepemilikan file ----------
@@ -446,16 +507,6 @@ def download_pptx(file_id):
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
-
-
-@app.route("/api/_init-db")
-def init_db_route():
-    """Endpoint sementara untuk bikin schema di Neon. HAPUS route ini setelah dipakai sekali."""
-    try:
-        db.init_db()
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True, "message": "Schema berhasil dibuat/diverifikasi"})
 
 
 if __name__ == "__main__":
