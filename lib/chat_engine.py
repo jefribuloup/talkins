@@ -12,6 +12,7 @@ import requests
 import pandas as pd
 
 from lib import db
+from lib import guard
 from lib.excel_engine import records_to_df, _get_columns
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -201,6 +202,7 @@ def _llm_select_sheets(file_id, message, history, sheet_names):
             "Selalu balas JSON array valid saja, tanpa teks lain.",
             [],
             prompt,
+            kind="chat_select",
         )
         cleaned = text.strip().strip("`")
         if cleaned.lower().startswith("json"):
@@ -258,7 +260,12 @@ def _gemini_request(model, body):
     )
 
 
+# Batas keluaran per panggilan (token). Gemini 'thinking' ikut dihitung, jadi default dibuat longgar.
+MAX_OUTPUT_TOKENS = int(os.environ.get("LLM_MAX_OUTPUT_TOKENS", "4096") or 4096)
+
+
 def _call_gemini(system_prompt, history, user_message):
+    """Return (teks, token_masuk, token_keluar, model_yang_menjawab)."""
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY belum diset")
     contents = []
@@ -270,13 +277,16 @@ def _call_gemini(system_prompt, history, user_message):
     body = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
         "contents": contents,
+        "generationConfig": {"maxOutputTokens": MAX_OUTPUT_TOKENS},
     }
-    # 503/429 = server Gemini sedang sibuk (sementara) -> coba ulang sebentar, lalu model cadangan.
-    attempts = [GEMINI_MODEL, GEMINI_MODEL]
-    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
-        attempts.append(GEMINI_FALLBACK_MODEL)
+    # 503/429 = server Gemini sedang sibuk (sementara) -> maksimal 1 kali ulang, memakai model cadangan
+    # (atau model yang sama kalau tidak ada cadangan). Setelah itu pindah ke Groq.
+    second = GEMINI_FALLBACK_MODEL if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL else GEMINI_MODEL
+    attempts = [GEMINI_MODEL, second]
     resp = None
+    used = GEMINI_MODEL
     for i, model in enumerate(attempts):
+        used = model
         resp = _gemini_request(model, body)
         if resp.status_code not in (429, 500, 502, 503, 504):
             break
@@ -284,10 +294,15 @@ def _call_gemini(system_prompt, history, user_message):
             time.sleep(1.5)
     resp.raise_for_status()
     data = resp.json()
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    text = data["candidates"][0]["content"]["parts"][0]["text"]
+    u = data.get("usageMetadata") or {}
+    tin = int(u.get("promptTokenCount") or 0)
+    tout = int(u.get("candidatesTokenCount") or 0) + int(u.get("thoughtsTokenCount") or 0)
+    return text, tin, tout, used
 
 
 def _call_groq(system_prompt, history, user_message):
+    """Return (teks, token_masuk, token_keluar, model)."""
     if not GROQ_API_KEY:
         raise RuntimeError("GROQ_API_KEY belum diset")
     messages = [{"role": "system", "content": system_prompt}]
@@ -298,22 +313,30 @@ def _call_groq(system_prompt, history, user_message):
     resp = requests.post(
         GROQ_URL,
         headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-        json={"model": GROQ_MODEL, "messages": messages, "temperature": 0.4},
+        json={"model": GROQ_MODEL, "messages": messages, "temperature": 0.4,
+              "max_completion_tokens": MAX_OUTPUT_TOKENS},
         timeout=30,
     )
     resp.raise_for_status()
     data = resp.json()
-    return data["choices"][0]["message"]["content"]
+    u = data.get("usage") or {}
+    return (data["choices"][0]["message"]["content"],
+            int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0), GROQ_MODEL)
 
 
-def _call_llm(system_prompt, history, user_message):
+def _call_llm(system_prompt, history, user_message, kind="chat"):
+    """Coba Gemini lalu Groq. `kind` menentukan jenis pemakaian yang dicatat di usage_events
+    (chat, chat_select, slide_outline, polish). Return (teks, nama_provider)."""
     errors = []
     for provider in (_call_gemini, _call_groq):
+        name = provider.__name__.replace("_call_", "")
         try:
-            text = provider(system_prompt, history, user_message)
-            return text, provider.__name__.replace("_call_", "")
+            text, tin, tout, model = provider(system_prompt, history, user_message)
         except Exception as e:
             errors.append(f"{provider.__name__}: {_clean_error(e)}")
+            continue
+        guard.record_llm(kind, name, model, tin, tout)
+        return text, name
     raise RuntimeError("Semua provider LLM gagal -> " + " | ".join(errors))
 
 
@@ -456,6 +479,7 @@ def _language_hint(lang):
 
 
 def ask(session_id, file_id, message, lang="id"):
+    guard.set_file(file_id)
     message = (message or "")[:MAX_USER_MESSAGE_CHARS]
     history = _trim_history(db.get_chat_history(session_id, file_id, limit=20))
 
@@ -472,7 +496,7 @@ def ask(session_id, file_id, message, lang="id"):
     profile = _build_data_profile(file_id, relevant_sheets, sheet_names)
 
     full_system = SYSTEM_PROMPT + _language_hint(lang) + "\n\nProfil data saat ini:\n" + profile
-    answer, provider_used = _call_llm(full_system, history, message)
+    answer, provider_used = _call_llm(full_system, history, message, kind="chat")
 
     # Lapis 2: LLM sendiri menilai pertanyaan di luar konteks -> ganti dengan pesan penolakan baku
     off_topic = OFF_TOPIC_MARKER in answer
@@ -511,6 +535,7 @@ def generate_slide_outline(file_id, spec):
         "Kamu adalah asisten pembuat outline slide dari data. Selalu balas JSON valid saja.",
         [],
         prompt,
+        kind="slide_outline",
     )
     cleaned = text.strip().strip("`")
     if cleaned.lower().startswith("json"):
