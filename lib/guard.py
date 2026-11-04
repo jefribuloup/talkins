@@ -41,6 +41,7 @@ _DEFAULTS = {
     "polish": {"user": (3, 30), "ip": (20, 300)},
     "upload": {"user": (6, 60), "ip": (30, 600)},
     "heavy": {"user": (30, 0), "ip": (120, 0)},          # rekap, ekspor slide/pptx, unduh salinan
+    "edit": {"user": (120, 0), "ip": (400, 0)},          # isi sel, manipulasi data, reset (tulis ulang data sheet)
     "auth_register": {"ip": (10, 200)},
     "auth_login": {"ip": (20, 500)},
 }
