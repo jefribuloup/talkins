@@ -1,94 +1,164 @@
 """
-PATCH untuk lib/excel_engine.py  --  jalur "FILE BESAR"
-=======================================================
-Prasyarat: patch_db_large_mode.py sudah terpasang di lib/db.py.
-
-Semua jalur baru hanya aktif kalau file/sheet melewati ambang. File kecil memakai kode lama
-persis seperti sekarang.
-
-  Ambang (bisa diubah lewat Environment Variable di Vercel, tanpa edit kode):
-    LARGE_FILE_MB  (default 3)       ukuran file >= ini  -> baca pakai engine cepat (calamine)
-                                      + scan rumus versi hemat memori
-    LARGE_ROWS     (default 10000)   sheet >= ini baris   -> simpan per baris (mode 'rows')
-    LARGE_CELLS    (default 150000)  sheet >= ini sel     -> simpan per baris (mode 'rows')
-
-CARA PASANG (urut):
-  [1] konfigurasi + helper  -> tempel setelah baris `PAGE_SIZE = 50`
-  [2] _detect_formulas      -> ganti fungsi lama
-  [3] _ingest_bytes         -> ganti fungsi lama
-  [4] preview_sheet         -> ganti fungsi lama
-  [5] _set_cell_fast        -> tempel fungsi baru + 3 baris "hook" di awal set_cell (lihat catatan)
-  [6] export_working_copy   -> ganti fungsi lama (+ tempel _export_streaming)
-  [7] requirements.txt      -> tambah:  python-calamine  dan  xlsxwriter   (pandas >= 2.2)
+Semua logic pandas/openpyxl ada di sini.
+Alur: upload -> baca semua sheet -> auto-clean dasar -> simpan snapshot 'original'
+      dan 'working' (identik) ke Neon. Manipulasi selanjutnya HANYA mengubah 'working'.
 """
 import io
 import os
+import re
 import hashlib
+import json
+import bisect
 import uuid
+import math
+import datetime
 
 import pandas as pd
+import numpy as np
+import requests
 import openpyxl
 from flask import send_file
 
-# ---------------------------------------------------------------------------
-# [1] KONFIGURASI + HELPER
-# ---------------------------------------------------------------------------
+from lib import db
+from lib import cell_formula
+from lib import safe_fetch
 
-def _env_num(name, default):
+PAGE_SIZE = 50
+
+
+# ---------- Konversi aman ke JSON ----------
+
+def _to_jsonable(val):
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
     try:
-        return float(os.environ.get(name, default))
-    except ValueError:
-        return float(default)
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if isinstance(val, (pd.Timestamp, datetime.datetime, datetime.date, datetime.time)):
+        return val.isoformat()
+    if isinstance(val, (np.datetime64,)):
+        return pd.Timestamp(val).isoformat()
+    if isinstance(val, (np.integer,)):
+        return int(val)
+    if isinstance(val, (np.floating,)):
+        return float(val)
+    if isinstance(val, (np.bool_,)):
+        return bool(val)
+    return val
 
 
-LARGE_FILE_BYTES = int(_env_num("LARGE_FILE_MB", 3) * 1024 * 1024)
-LARGE_ROW_LIMIT = int(_env_num("LARGE_ROWS", 10000))
-LARGE_CELL_LIMIT = int(_env_num("LARGE_CELLS", 150000))
-WIDTH_SAMPLE_ROWS = 5000  # lebar kolom (mode 'rows') dihitung dari sekian baris pertama saja
-
-_PLAIN_TYPES = (str, int, float, bool, type(None))
-
-
-def df_to_records_fast(df):
-    """Versi cepat df_to_records() untuk sheet besar.
-    Tidak memanggil fungsi konversi untuk tiap sel: NaN/NaT -> None dilakukan sekali secara
-    vektor; _to_jsonable() hanya dipanggil untuk sel bertipe khusus (tanggal/jam/numpy)."""
-    obj = df.astype(object)
-    rows = obj.where(df.notna(), None).to_numpy().tolist()
-    for row in rows:
-        for j, v in enumerate(row):
-            if not isinstance(v, _PLAIN_TYPES):
-                row[j] = _to_jsonable(v)
-    return rows
+def df_to_records(df: pd.DataFrame):
+    records = []
+    for row in df.itertuples(index=False, name=None):
+        records.append([_to_jsonable(v) for v in row])
+    return records
 
 
-_CALAMINE_OK = None
+def records_to_df(records, columns):
+    return pd.DataFrame(records, columns=columns)
 
 
-def _calamine_available():
-    global _CALAMINE_OK
-    if _CALAMINE_OK is None:
-        try:
-            import python_calamine  # noqa: F401
-            _CALAMINE_OK = True
-        except ImportError:
-            _CALAMINE_OK = False
-    return _CALAMINE_OK
+# ---------- Grid mentah (tanpa header) ----------
+
+def _build_grid(raw: pd.DataFrame):
+    """Ubah dataframe mentah (dibaca dgn header=None) jadi grid apa adanya.
+
+    TIDAK ada baris/kolom yang diperlakukan sebagai header: semua baris & kolom setara.
+    Posisi dipertahankan persis seperti di Excel: baris 0 = baris 1 sheet, kolom 0 = kolom A,
+    termasuk baris/kolom kosong di depan dan di tengah. Hanya baris/kolom kosong di
+    UJUNG (setelah data terakhir) yang dipangkas. Kolom diberi nama huruf (A, B, ..., AA).
+    Return None kalau sheet sama sekali kosong."""
+    if raw.empty:
+        return None
+    mask = raw.notna().to_numpy()
+    rows_any = mask.any(axis=1)
+    if not rows_any.any():
+        return None
+    cols_any = mask.any(axis=0)
+    last_r = int(np.nonzero(rows_any)[0][-1])
+    last_c = int(np.nonzero(cols_any)[0][-1])
+    grid = raw.iloc[: last_r + 1, : last_c + 1].copy()
+    grid.columns = [_idx_to_letters(i) for i in range(grid.shape[1])]
+    return grid.reset_index(drop=True)
 
 
-# ---------------------------------------------------------------------------
-# [2] _detect_formulas  (parameter baru: fast)
-#     fast=True: workbook dibuka read_only dan hanya baris yang discan yang dibaca.
-#     Versi lama membuka SELURUH workbook ke memori (50 ribu baris = ratusan MB + puluhan detik)
-#     padahal yang dipakai hanya 500 baris pertama.
-# ---------------------------------------------------------------------------
+# ---------- Deteksi kolom rumus/formula bawaan ----------
 
-def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_origin, fast=False):
-    """Lihat docstring versi lama. Hasil identik; beda hanya cara membaca file."""
+MAX_FORMULA_SCAN_ROWS = 500  # batas baris yg discan rumusnya (cukup mewakili, ga perlu scan semua)
+
+
+# Referensi sel A1-style: B4, $B$4, B4:B10. Lookbehind/lookahead menghindari salah tangkap
+# nama fungsi (LOG10(, ATAN2() dan referensi lintas-sheet (Sheet2!A1).
+_REF_RE = re.compile(
+    r"(?<![A-Za-z0-9_.!'\"])\$?([A-Z]{1,3})\$?(\d+)(?::\$?([A-Z]{1,3})\$?(\d+))?(?![A-Za-z0-9_(])"
+)
+MAX_DEPS_PER_FORMULA = 12
+
+
+def _idx_to_letters(idx):
+    """0 -> A, 25 -> Z, 26 -> AA (kebalikan _letters_to_idx)."""
+    n, out = idx + 1, ""
+    while n > 0:
+        n, rem = divmod(n - 1, 26)
+        out = chr(65 + rem) + out
+    return out
+
+
+def _letters_to_idx(letters):
+    n = 0
+    for ch in letters:
+        n = n * 26 + (ord(ch) - 64)
+    return n - 1
+
+
+def _parse_formula_deps(formula, inv_col_origin, row_origin):
+    """Ekstrak 'bahan' rumus: list {"ref", "cols", "rows"} dgn kolom dipetakan ke NAMA
+    kolom hasil pembersihan dan baris dipetakan ke nomor baris (1-based) di tabel
+    bersih. rows=None kalau referensinya di luar area data (mis. baris judul)."""
+    deps, seen = [], set()
+    for m in _REF_RE.finditer(formula):
+        ref = m.group(0).replace("$", "")
+        if ref in seen:
+            continue
+        seen.add(ref)
+        c1 = _letters_to_idx(m.group(1))
+        r1 = int(m.group(2)) - 1
+        c2 = _letters_to_idx(m.group(3)) if m.group(3) else c1
+        r2 = int(m.group(4)) - 1 if m.group(4) else r1
+        c_lo, c_hi = min(c1, c2), max(c1, c2)
+        r_lo, r_hi = min(r1, r2), max(r1, r2)
+        cols = [inv_col_origin[c] for c in range(c_lo, min(c_hi, c_lo + 60) + 1) if c in inv_col_origin]
+        i_lo = bisect.bisect_left(row_origin, r_lo)
+        i_hi = bisect.bisect_right(row_origin, r_hi) - 1
+        rows = [i_lo + 1, i_hi + 1] if i_lo <= i_hi else None
+        deps.append({"ref": ref, "cols": cols, "rows": rows})
+        if len(deps) >= MAX_DEPS_PER_FORMULA:
+            break
+    return deps
+
+
+def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_origin):
+    """Baca ulang file pakai openpyxl (data_only=False) untuk mendapat 2 hal sekaligus:
+
+    1) formula_columns: {nama_kolom: {"count","checked","ratio","sample"}} -> ringkasan
+       per kolom (dipakai penanda ƒx di header, profil chat, dan fallback tab Rumus).
+    2) formula_cells: {"<posisi_baris>": {nama_kolom: {"f","deps","x"}}} -> peta PER SEL, hanya
+       sel yang benar-benar rumus (sparse). posisi_baris = index 0-based baris di
+       working_data SAAT INGEST. Kalau nanti baris di-sort/filter/dedupe, posisi itu
+       bergeser -> ditandai lewat row_order_dirty di db, bukan dihapus.
+
+    Kenapa baca ulang: pandas hanya membaca HASIL hitung rumus (angka), bukan
+    string rumusnya. Hanya .xlsx/.xlsm; format .xls lama (xlrd) tidak bisa.
+    Mengembalikan (formula_columns, formula_cells).
+    """
     if not filename.lower().endswith((".xlsx", ".xlsm")):
         return {}, {}
     try:
-        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=False, read_only=fast)
+        wb = openpyxl.load_workbook(io.BytesIO(raw_bytes), data_only=False)
     except Exception:
         return {}, {}
     if sheet_name not in wb.sheetnames:
@@ -97,23 +167,6 @@ def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_o
     ws = wb[sheet_name]
 
     scan_rows = list(enumerate(row_origin[:MAX_FORMULA_SCAN_ROWS]))  # (posisi, baris_asli)
-
-    if fast:
-        # Di mode read_only, ws.cell() sangat lambat -> baca baris yang discan SEKALI saja
-        last = scan_rows[-1][1] + 1 if scan_rows else 0
-        cache = list(ws.iter_rows(min_row=1, max_row=last, values_only=True)) if last else []
-
-        def cell_value(orig_row, orig_col):
-            if orig_row < len(cache):
-                r = cache[orig_row]
-                if orig_col < len(r):
-                    return r[orig_col]
-            return None
-    else:
-        def cell_value(orig_row, orig_col):
-            # +1 krn openpyxl 1-based, sedangkan col_origin/row_origin 0-based
-            return ws.cell(row=orig_row + 1, column=orig_col + 1).value
-
     inv_col_origin = {idx: name for name, idx in col_origin.items()}
     formula_columns = {}
     formula_cells = {}
@@ -125,7 +178,8 @@ def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_o
         checked = formula_hits = 0
         sample_formula = None
         for row_pos, orig_row in scan_rows:
-            val = cell_value(orig_row, orig_col)
+            # +1 krn openpyxl 1-based, sedangkan col_origin/row_origin 0-based
+            val = ws.cell(row=orig_row + 1, column=orig_col + 1).value
             if val is None:
                 continue
             checked += 1
@@ -150,12 +204,170 @@ def _detect_formulas(raw_bytes, filename, sheet_name, columns, col_origin, row_o
     return formula_columns, formula_cells
 
 
-# ---------------------------------------------------------------------------
-# [3] _ingest_bytes
-#     Perubahan dibanding versi lama:
-#       - file >= LARGE_FILE_MB : coba engine calamine (jauh lebih cepat); gagal -> engine lama
-#       - sheet besar           : konversi cepat + simpan per baris (save_sheet_rows)
-# ---------------------------------------------------------------------------
+# ---------- Ingest ----------
+
+def _pick_engine(filename: str) -> str:
+    lower = filename.lower()
+    if lower.endswith(".xls"):
+        return "xlrd"
+    return "openpyxl"
+
+
+def ingest_file(file_storage, session_id):
+    filename = file_storage.filename
+    if not filename.lower().endswith((".xlsx", ".xls", ".xlsm")):
+        raise ValueError("Format harus .xlsx / .xls / .xlsm")
+
+    raw_bytes = file_storage.read()
+    return _ingest_bytes(raw_bytes, filename, session_id, source="upload")
+
+
+# ---------- Ingest dari link spreadsheet (mis. Google Sheets publik) ----------
+
+_GOOGLE_SHEET_ID_RE = re.compile(r"/spreadsheets/d/([a-zA-Z0-9-_]+)")
+
+
+def _resolve_spreadsheet_url(url: str):
+    """Kalau link Google Sheets biasa -> ubah jadi link export .xlsx langsung.
+    Link lain (mis. URL download .xlsx dari cloud storage) dipakai apa adanya."""
+    m = _GOOGLE_SHEET_ID_RE.search(url)
+    if m:
+        sheet_id = m.group(1)
+        return (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=xlsx",
+            f"google-sheet-{sheet_id}.xlsx",
+        )
+    name = url.split("?")[0].rstrip("/").split("/")[-1] or "spreadsheet.xlsx"
+    if not name.lower().endswith((".xlsx", ".xls", ".xlsm")):
+        name += ".xlsx"
+    return url, name
+
+
+def ingest_from_url(url, session_id):
+    if not url or not url.strip().lower().startswith(("http://", "https://")):
+        raise ValueError("Link tidak valid")
+
+    fetch_url, filename = _resolve_spreadsheet_url(url.strip())
+
+    # Link yang sama sudah pernah diproses di sesi ini -> jangan unduh & buat salinan lagi
+    dup = db.find_duplicate(session_id, source_key=fetch_url)
+    if dup:
+        return _duplicate_response(dup)
+
+    # Unduh lewat safe_fetch: hanya alamat publik (anti-SSRF), redirect diperiksa tiap hop,
+    # ukuran dibatasi (URL_MAX_MB, default 20) dan dibaca bertahap. Galat berupa ValueError ramah.
+    content, _final_url = safe_fetch.fetch_public_url(fetch_url)
+
+    return _ingest_bytes(content, filename, session_id, source="url", source_key=fetch_url)
+
+
+# ---------- Ingest dari Google Drive (untuk file > batas body Vercel ±4,5 MB) ----------
+#
+# Alur: browser mengunggah file LANGSUNG ke Google Drive milik user (tidak lewat server Vercel, jadi
+# tidak kena batas 4 MB), lalu mengirim id file + access token Drive ke sini. Server mengunduh
+# filenya dari Drive (hanya baca) dan memprosesnya seperti upload biasa. Token tidak disimpan.
+
+_DRIVE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{10,100}$")
+_DRIVE_FILES_URL = "https://www.googleapis.com/drive/v3/files/"
+_EXCEL_EXTS = (".xlsx", ".xls", ".xlsm")
+
+
+def drive_max_mb():
+    """Batas ukuran file yang diproses dari Drive (MB). Atur lewat env DRIVE_MAX_MB; default 30."""
+    try:
+        return max(5, int(os.environ.get("DRIVE_MAX_MB", "30")))
+    except ValueError:
+        return 30
+
+
+def ingest_from_drive(file_id, access_token, session_id):
+    file_id = (file_id or "").strip()
+    access_token = (access_token or "").strip()
+    if not _DRIVE_ID_RE.match(file_id):
+        raise ValueError("ID file Google Drive tidak valid.")
+    if not access_token or len(access_token) > 4096:
+        raise ValueError("Izin Google Drive tidak ditemukan. Coba unggah ulang dan setujui izin akses.")
+
+    # File Drive yang sama sudah pernah diproses di sesi ini -> minta konfirmasi, jangan unduh lagi
+    source_key = f"drive:{file_id}"
+    dup = db.find_duplicate(session_id, source_key=source_key)
+    if dup:
+        return _duplicate_response(dup)
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    max_bytes = drive_max_mb() * 1024 * 1024
+
+    try:
+        meta = requests.get(
+            _DRIVE_FILES_URL + file_id,
+            params={"fields": "id,name,size,trashed"},
+            headers=headers,
+            timeout=15,
+        )
+    except requests.RequestException:
+        raise ValueError("Tidak bisa menghubungi Google Drive. Coba lagi sebentar lagi.")
+    if meta.status_code in (401, 403):
+        raise ValueError("Izin Google Drive ditolak atau sudah habis. Coba unggah ulang dan setujui izin akses.")
+    if meta.status_code == 404:
+        raise ValueError("File tidak ditemukan di Google Drive.")
+    if not meta.ok:
+        raise ValueError("Google Drive belum bisa membuka file ini. Coba lagi sebentar lagi.")
+
+    info = meta.json()
+    name = info.get("name") or ""
+    if info.get("trashed"):
+        raise ValueError("File ini ada di tempat sampah Google Drive.")
+    if not name.lower().endswith(_EXCEL_EXTS):
+        raise ValueError("Format harus .xlsx / .xls / .xlsm")
+    try:
+        size = int(info.get("size") or 0)
+    except ValueError:
+        size = 0
+    if size > max_bytes:
+        raise ValueError(f"File terlalu besar untuk diproses (maksimal {drive_max_mb()} MB).")
+
+    try:
+        resp = requests.get(
+            _DRIVE_FILES_URL + file_id,
+            params={"alt": "media"},
+            headers=headers,
+            stream=True,
+            timeout=(10, 60),
+        )
+    except requests.RequestException:
+        raise ValueError("Gagal mengunduh file dari Google Drive. Coba lagi sebentar lagi.")
+    if not resp.ok:
+        raise ValueError("Gagal mengunduh file dari Google Drive. Coba lagi sebentar lagi.")
+
+    chunks, total = [], 0
+    try:
+        for chunk in resp.iter_content(chunk_size=1024 * 256):
+            total += len(chunk)
+            if total > max_bytes:  # jaga-jaga bila metadata ukuran tidak akurat
+                raise ValueError(f"File terlalu besar untuk diproses (maksimal {drive_max_mb()} MB).")
+            chunks.append(chunk)
+    except requests.RequestException:
+        raise ValueError("Unduhan dari Google Drive terputus. Coba lagi sebentar lagi.")
+    finally:
+        resp.close()
+
+    return _ingest_bytes(b"".join(chunks), name, session_id, source="drive", source_key=source_key)
+
+
+# ---------- Logic inti ingest, dipakai baik oleh upload file maupun link ----------
+
+def _duplicate_response(dup):
+    """Bentuk respons standar kalau file/link yang sama sudah pernah diunggah.
+    Frontend yang menanyakan ke user apakah mau membuka file yang sudah ada."""
+    return {
+        "duplicate": True,
+        "file_id": dup["id"],
+        "filename": dup["filename"],
+        "sheets": dup.get("sheet_names") or [],
+        "uploaded_at": dup["uploaded_at"],
+        "source": dup.get("source", "upload"),
+    }
+
 
 def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=None):
     # Cegah dobel: isi file identik (SHA-256) dgn yang sudah ada di sesi ini
@@ -164,31 +376,20 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
     if dup:
         return _duplicate_response(dup)
 
-    big_file = len(raw_bytes) >= LARGE_FILE_BYTES
-
-    xls = None
-    if big_file and _calamine_available():
-        try:
-            xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine="calamine")
-        except Exception:
-            xls = None  # pandas lama / file aneh -> jatuh ke engine standar di bawah
-
-    if xls is None:
-        engine = _pick_engine(filename)
-        try:
-            xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
-        except ImportError:
-            # Pustaka pembaca belum terpasang di server (mis. xlrd untuk .xls): bukan salah file user
-            raise ValueError(
-                "Server belum memiliki pustaka pembaca untuk format ini (" + engine + "). "
-                "Simpan file sebagai .xlsx lalu unggah ulang, atau hubungi admin."
-            )
-        except Exception:
-            raise ValueError(
-                "File/spreadsheet tidak bisa dibaca. Pastikan formatnya didukung "
-                "(.xlsx/.xls/.xlsm) dan, untuk link, aksesnya publik."
-            )
-
+    engine = _pick_engine(filename)
+    try:
+        xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
+    except ImportError:
+        # Pustaka pembaca belum terpasang di server (mis. xlrd untuk .xls): bukan salah file user
+        raise ValueError(
+            "Server belum memiliki pustaka pembaca untuk format ini (" + engine + "). "
+            "Simpan file sebagai .xlsx lalu unggah ulang, atau hubungi admin."
+        )
+    except Exception:
+        raise ValueError(
+            "File/spreadsheet tidak bisa dibaca. Pastikan formatnya didukung "
+            "(.xlsx/.xls/.xlsm) dan, untuk link, aksesnya publik."
+        )
     file_id = str(uuid.uuid4())
     db.create_file(file_id, session_id, filename, [], source=source,
                    content_hash=content_hash, source_key=source_key)
@@ -198,25 +399,17 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
         # dtype=object: nilai dibaca apa adanya (angka tetap angka, teks tetap teks)
         raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=object)
         grid = _build_grid(raw_df)
-        del raw_df
         if grid is None:
             continue
         columns = list(grid.columns)  # ["A", "B", ...] = huruf kolom Excel asli
-        use_rows = len(grid) >= LARGE_ROW_LIMIT or grid.size >= LARGE_CELL_LIMIT
-        records = df_to_records_fast(grid) if use_rows else df_to_records(grid)
-        del grid
+        records = df_to_records(grid)
         # Grid = sheet asli (tanpa pemangkasan di depan) -> posisi kolom/baris identik dgn Excel
         col_origin = {name: i for i, name in enumerate(columns)}
         row_origin = list(range(len(records)))
         formula_columns, formula_cells = _detect_formulas(
-            raw_bytes, filename, sheet_name, columns, col_origin, row_origin,
-            fast=(big_file or use_rows),
+            raw_bytes, filename, sheet_name, columns, col_origin, row_origin
         )
-        if use_rows:
-            db.save_sheet_rows(file_id, sheet_name, records, columns, formula_columns, formula_cells)
-        else:
-            db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells)
-        del records
+        db.save_sheet(file_id, sheet_name, records, columns, formula_columns, formula_cells)
         sheet_names.append(sheet_name)
 
     if not sheet_names:
@@ -232,11 +425,146 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
     }
 
 
-# ---------------------------------------------------------------------------
-# [4] preview_sheet
-#     Bentuk respons SAMA seperti sebelumnya (+ kunci baru "large"), jadi JS tidak perlu diubah.
-#     Sheet mode 'rows': hanya `row_count` baris yang diambil dari database.
-# ---------------------------------------------------------------------------
+# ---------- Preview & metadata ----------
+
+def get_sheet_list(file_id):
+    return {"sheets": db.list_sheet_names(file_id)}
+
+
+# ---------- Pemulihan file lama (diunggah sebelum grid tanpa header) ----------
+# Di file lama, baris header disimpan sebagai NAMA kolom (bukan data), jadi tidak ikut tampil.
+# Saat sheet dibuka, sheet lama otomatis dikonversi: header dikembalikan jadi baris biasa di
+# posisi aslinya. Penanda file lama = original_meta punya kunci "header_row".
+
+_LEGACY_AUTO_NAME = re.compile(r"^kolom_\d+$")
+_NUMERIC_TEXT = re.compile(r"^-?(0|[1-9]\d*)(\.\d+)?$")
+
+
+def _legacy_header_value(name):
+    if not isinstance(name, str) or _LEGACY_AUTO_NAME.match(name):
+        return None
+    n = re.sub(r"^(-?\d+)\.0+$", r"\1", name)
+    if _NUMERIC_TEXT.match(n):
+        return float(n) if "." in n else int(n)
+    return name
+
+
+def _legacy_to_grid(records, columns, letters, header_row):
+    """records/columns versi lama -> (grid baris-baris, daftar huruf kolom, peta nama->huruf)."""
+    idx = {}
+    for i, c in enumerate(columns):
+        idx[c] = _letters_to_idx(letters[c]) if c in letters else i
+    width = (max(idx.values()) + 1) if idx else 0
+    header_pos = max(0, int(header_row or 1) - 1)
+
+    def blank():
+        return [None] * width
+
+    grid = [blank() for _ in range(header_pos)]
+    head = blank()
+    for c in columns:
+        head[idx[c]] = _legacy_header_value(c)
+    grid.append(head)
+    for rec in records:
+        row = blank()
+        for c, v in zip(columns, rec):
+            row[idx[c]] = v
+        grid.append(row)
+    return grid, _letters_list(width), {c: _idx_to_letters(i) for c, i in idx.items()}
+
+
+def _migrate_legacy_sheet(file_id, sheet_name):
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT original_data, working_data, columns, original_meta, formula_columns, column_letters "
+        "FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    if not row or "header_row" not in (row[3] or {}):
+        cur.close()
+        conn.close()
+        return
+    orig_data, work_data, work_cols, meta, work_fcols, work_letters = row
+    header_row = meta.get("header_row", 1)
+    o_grid, o_cols, o_map = _legacy_to_grid(
+        orig_data, meta.get("columns") or work_cols, meta.get("column_letters") or {}, header_row)
+    w_grid, w_cols, w_map = _legacy_to_grid(
+        work_data, work_cols, work_letters or {}, header_row)
+
+    def remap(fc, mapping):
+        return {mapping[k]: v for k, v in (fc or {}).items() if k in mapping}
+
+    new_meta = {
+        "columns": o_cols,
+        "formula_columns": remap(meta.get("formula_columns"), o_map),
+        "formula_cells": {},  # peta rumus per-sel versi lama tidak bisa dipetakan -> upload ulang untuk detailnya
+        "column_letters": {},
+    }
+    cur.execute(
+        "UPDATE sheets SET original_data=%s, working_data=%s, columns=%s, formula_columns=%s, "
+        "formula_cells='{}', row_order_dirty=false, column_letters='{}', original_meta=%s "
+        "WHERE file_id=%s AND sheet_name=%s",
+        (json.dumps(o_grid), json.dumps(w_grid), json.dumps(w_cols),
+         json.dumps(remap(work_fcols, w_map)), json.dumps(new_meta), file_id, sheet_name),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_recap(file_id, sheet_name, lang="id"):
+    """Rekapitulasi (duplikat, format, error, analisa) untuk data sheet saat ini."""
+    from lib import recap_engine
+    _migrate_legacy_sheet(file_id, sheet_name)
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    if records is None:
+        raise ValueError("Sheet tidak ditemukan")
+    columns = _get_columns(file_id, sheet_name)
+    formula_columns, formula_cells, dirty, _ = db.get_formula_info(file_id, sheet_name)
+    return recap_engine.build_recap(
+        records, columns, formula_columns, {} if dirty else formula_cells, lang)
+
+
+MAX_ROWS_PER_REQUEST = 500
+MAX_COL_CHARS = 60
+
+
+def _formula_cells_view(formula_cells, dirty):
+    """Peta rumus per-sel untuk browser. Setelah sort/filter/dll (dirty), posisi rumus bawaan file
+    tidak akurat lagi -> hanya rumus yang diisi user (u=true) yang ditampilkan."""
+    if not dirty:
+        return formula_cells
+    out = {}
+    for r, cells in formula_cells.items():
+        keep = {k: v for k, v in cells.items() if isinstance(v, dict) and v.get("u")}
+        if keep:
+            out[r] = keep
+    return out
+
+
+def _col_chars(records, ncols):
+    """Panjang teks terpanjang tiap kolom (jumlah karakter tampilan, maks MAX_COL_CHARS).
+    0 = kolom tanpa isi -> frontend memakai lebar standar. Dipakai untuk lebar kolom dinamis."""
+    widths = [0] * ncols
+    for row in records:
+        for j, v in enumerate(row[:ncols]):
+            if v is None:
+                continue
+            if isinstance(v, str):
+                n = len(v)
+            elif isinstance(v, float):
+                if v != v:
+                    continue
+                n = len(str(int(v))) if v == int(v) else len(str(v))
+            else:
+                n = len(str(v))
+            if n > widths[j]:
+                widths[j] = min(n, MAX_COL_CHARS)
+    return widths
+
+
 
 def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=True):
     """Kirim potongan baris [row_start, row_start+row_count) dari grid (tanpa header).
@@ -245,136 +573,303 @@ def preview_sheet(file_id, sheet_name, row_start=0, row_count=200, with_meta=Tru
     ringkas sheet (jumlah baris/kolom, info rumus) -> cukup diminta sekali per sheet."""
     if with_meta:
         _migrate_legacy_sheet(file_id, sheet_name)
-    row_count = max(1, min(int(row_count), MAX_ROWS_PER_REQUEST))
-    got = db.get_preview_data(file_id, sheet_name, row_start, row_count)
-    if got is None:
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    if records is None:
         raise ValueError("Sheet tidak ditemukan")
-    large = got["storage"] == "rows"
+    total_rows = len(records)
+    row_start = max(0, min(int(row_start), total_rows))
+    row_count = max(1, min(int(row_count), MAX_ROWS_PER_REQUEST))
     out = {
-        "row_start": got["row_start"],
-        "rows": got["rows"],
+        "row_start": row_start,
+        "rows": records[row_start:row_start + row_count],
     }
     if with_meta:
         columns = _get_columns(file_id, sheet_name)
         formula_columns, formula_cells, row_order_dirty, _ = db.get_formula_info(file_id, sheet_name)
-        # Lebar kolom: sheet kecil dihitung dari semua baris (seperti dulu); sheet besar dari
-        # WIDTH_SAMPLE_ROWS baris pertama saja supaya tidak perlu memuat seluruh sheet.
-        width_rows = (db.get_rows_slice(file_id, sheet_name, 0, WIDTH_SAMPLE_ROWS)
-                      if large else got["records"])
         out.update({
             "columns": columns,
-            "total_rows": got["total_rows"],
+            "total_rows": total_rows,
             "total_cols": len(columns),
-            "col_chars": _col_chars(width_rows, len(columns)),
+            "col_chars": _col_chars(records, len(columns)),
             "formula_columns": formula_columns,
             # peta rumus per sel (sparse, hanya baris yg discan saat ingest) -> key = indeks baris
             "formula_cells": _formula_cells_view(formula_cells, row_order_dirty),
             "row_order_dirty": row_order_dirty,
-            "large": large,
         })
     return out
 
 
-# ---------------------------------------------------------------------------
-# [5] set_cell: jalur cepat untuk sheet besar
-#     Tanpa ini, mengisi SATU sel di sheet 50 ribu baris menulis ulang 50 ribu baris.
-#     Jalur cepat hanya dipakai bila: sheet mode 'rows', isian bukan rumus, sel masih di
-#     dalam data, dan sheet belum punya rumus isian user. Selain itu -> jalur lama (benar,
-#     tapi lebih lambat).
-#
-#     HOOK: di fungsi set_cell yang sudah ada, tempel 3 baris ini TEPAT SEBELUM baris
-#           `columns = _get_columns(file_id, sheet_name)`:
-#
-#               fast = _set_cell_fast(file_id, sheet_name, row, col, text)
-#               if fast is not None:
-#                   return fast
-# ---------------------------------------------------------------------------
+def _get_columns(file_id, sheet_name):
+    conn = db.get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT columns FROM sheets WHERE file_id=%s AND sheet_name=%s",
+        (file_id, sheet_name),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else []
 
-def _set_cell_fast(file_id, sheet_name, row, col, text):
-    if text.strip().startswith("="):
-        return None
-    storage, nrows = db.sheet_storage(file_id, sheet_name)
-    if storage != "rows":
-        return None
+
+# ---------- Manipulasi working copy ----------
+
+def _letters_list(n):
+    return [_idx_to_letters(i) for i in range(n)]
+
+
+def _norm_col(c):
+    return str(c).strip().upper()
+
+
+def apply_operation(file_id, op):
+    sheet_name = op.get("sheet")
+    action = op.get("action")
     columns = _get_columns(file_id, sheet_name)
-    if not (0 <= row < nrows and 0 <= col < len(columns)):
-        return None
-    _, formula_cells, dirty, _ = db.get_formula_info(file_id, sheet_name)
-    if _user_formulas(formula_cells):
-        return None
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    df = records_to_df(records, columns)
 
-    value = _parse_literal(text)
-    db.set_cell_value(file_id, sheet_name, row, col, value)
+    # Kolom dirujuk dengan huruf Excel (A, B, ...), tidak ada "nama kolom"/header.
+    if op.get("column") is not None:
+        op["column"] = _norm_col(op["column"])
+    if op.get("columns") is not None:
+        op["columns"] = [_norm_col(c) for c in op["columns"] if str(c).strip()]
+    for c in ([op["column"]] if op.get("column") else []) + (op.get("columns") or []):
+        if c not in df.columns:
+            raise ValueError(f"Kolom {c} tidak ada di sheet ini")
 
-    # Menimpa sel yang tadinya rumus bawaan file -> catatan rumusnya dilepas
-    letter = _idx_to_letters(col)
-    cells = formula_cells.get(str(row))
-    if cells and letter in cells:
-        del cells[letter]
-        if not cells:
-            formula_cells.pop(str(row), None)
-        db.update_formula_cells(file_id, sheet_name, formula_cells)
+    rename_map = None  # {huruf_lama: huruf_baru}, hanya diisi saat kolom dihapus
+
+    if action == "drop_na":
+        cols = op.get("columns") or None
+        df = df.dropna(subset=cols) if cols else df.dropna(how="all")
+
+    elif action == "fill_na":
+        value = op.get("value", "")
+        cols = op.get("columns") or df.columns.tolist()
+        df[cols] = df[cols].fillna(value)
+
+    elif action == "drop_duplicates":
+        cols = op.get("columns") or None
+        df = df.drop_duplicates(subset=cols)
+
+    elif action == "drop_column":
+        drop = set(op.get("columns", []))
+        keep = [c for c in df.columns if c not in drop]
+        df = df[keep]
+        rename_map = {old: _idx_to_letters(i) for i, old in enumerate(keep)}
+
+    elif action == "filter_rows":
+        col, cond, val = op["column"], op["condition"], op["value"]
+        series = df[col]
+        if cond == "eq":
+            df = df[series == val]
+        elif cond == "neq":
+            df = df[series != val]
+        elif cond == "gt":
+            df = df[pd.to_numeric(series, errors="coerce") > float(val)]
+        elif cond == "lt":
+            df = df[pd.to_numeric(series, errors="coerce") < float(val)]
+        elif cond == "contains":
+            df = df[series.astype(str).str.contains(str(val), case=False, na=False)]
+
+    elif action == "sort":
+        col = op["column"]
+        ascending = op.get("ascending", True)
+        df = df.sort_values(by=col, ascending=ascending)
+
+    elif action == "cast_numeric":
+        cols = op.get("columns", [])
+        for c in cols:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    else:
+        raise ValueError(f"Aksi tidak dikenal: {action}")
+
+    df = df.reset_index(drop=True)
+    # Nama kolom selalu = huruf berurutan dari A (seperti Excel setelah kolom dihapus)
+    df.columns = _letters_list(len(df.columns))
+    new_columns = list(df.columns)
+    new_records = df_to_records(df)
+    db.update_working_data(file_id, sheet_name, new_records, new_columns)
+
+    # Aksi yang mengubah urutan/jumlah baris atau menggeser kolom -> peta rumus per-sel
+    # (berbasis posisi saat ingest) tidak akurat lagi sampai user reset ke data asli.
+    if action in ("drop_na", "drop_duplicates", "filter_rows", "sort", "drop_column"):
+        db.set_row_order_dirty(file_id, sheet_name, True)
+        # Rumus isian user menunjuk alamat sel; setelah baris/kolom bergeser alamatnya tidak
+        # berlaku lagi -> nilainya tetap ada sebagai angka/teks biasa, rumusnya dilepas.
+        _drop_user_formulas(file_id, sheet_name)
+
+    # Kolom dihapus -> huruf kolom di info rumus ikut bergeser.
+    if rename_map is not None:
+        formula_columns = db.get_formula_columns(file_id, sheet_name)
+        db.update_formula_columns(
+            file_id, sheet_name,
+            {rename_map[k]: v for k, v in formula_columns.items() if k in rename_map},
+        )
 
     return {
-        "total_rows": nrows,
+        "columns": new_columns,
+        "row_count": len(new_records),
+        "preview": new_records[:PAGE_SIZE],
+    }
+
+
+def _drop_user_formulas(file_id, sheet_name):
+    formula_cells = db.get_formula_cells(file_id, sheet_name)
+    changed = False
+    for r in list(formula_cells):
+        for letter in list(formula_cells[r]):
+            e = formula_cells[r][letter]
+            if isinstance(e, dict) and e.get("u"):
+                del formula_cells[r][letter]
+                changed = True
+        if not formula_cells[r]:
+            del formula_cells[r]
+    if changed:
+        db.update_formula_cells(file_id, sheet_name, formula_cells)
+
+
+# ---------- Isi sel langsung di grid (nilai biasa atau rumus hasil paste dari tab Rumus) ----------
+
+XL_MAX_ROWS = 1048576
+XL_MAX_COLS = 16384
+MAX_EXTRA_ROWS = 5000     # seberapa jauh di bawah data terakhir sel boleh diisi
+MAX_EXTRA_COLS = 100      # seberapa jauh di kanan data terakhir sel boleh diisi
+MAX_USER_FORMULAS = 1000
+MAX_INPUT_LEN = 5000
+
+
+def _parse_literal(text):
+    """Isian biasa -> nilai sel. Angka murni jadi angka; sisanya teks apa adanya
+    (\"007\" tetap teks supaya nol di depan tidak hilang)."""
+    s = text.strip()
+    if s == "":
+        return None
+    if _NUMERIC_TEXT.match(s) and len(s.lstrip("-")) <= 15:
+        return float(s) if "." in s else int(s)
+    return text
+
+
+def _user_formulas(formula_cells):
+    out = {}
+    for r, cells in formula_cells.items():
+        for letter, e in cells.items():
+            if isinstance(e, dict) and e.get("u") and e.get("f"):
+                out[(int(r), _letters_to_idx(letter))] = e["f"]
+    return out
+
+
+def set_cell(file_id, sheet_name, row, col, raw_input):
+    """Isi satu sel (0-based). Teks berawalan '=' dihitung sebagai rumus Excel: hasilnya disimpan
+    sebagai nilai sel dan rumusnya dicatat di formula_cells (u=true) supaya tab Rumus bisa
+    menampilkannya. Semua rumus isian user dihitung ulang tiap ada perubahan.
+
+    Hanya mengubah working copy. Return {total_rows, total_cols, columns, changes, formula_cells}."""
+    try:
+        row, col = int(row), int(col)
+    except (TypeError, ValueError):
+        raise ValueError("Posisi sel tidak valid")
+    if not (0 <= row < XL_MAX_ROWS and 0 <= col < XL_MAX_COLS):
+        raise ValueError("Posisi sel di luar batas Excel")
+    text = "" if raw_input is None else str(raw_input)
+    if len(text) > MAX_INPUT_LEN:
+        raise ValueError(f"Isian terlalu panjang (maksimal {MAX_INPUT_LEN} karakter)")
+
+    columns = _get_columns(file_id, sheet_name)
+    records = db.get_sheet(file_id, sheet_name, version="working")
+    if records is None:
+        raise ValueError("Sheet tidak ditemukan")
+    nrows, ncols = len(records), len(columns)
+    if row >= nrows + MAX_EXTRA_ROWS or col >= ncols + MAX_EXTRA_COLS:
+        raise ValueError(
+            f"Sel terlalu jauh dari data (maksimal {MAX_EXTRA_ROWS} baris / {MAX_EXTRA_COLS} kolom setelah data terakhir)")
+
+    _, formula_cells, dirty, _ = db.get_formula_info(file_id, sheet_name)
+    user = _user_formulas(formula_cells)
+    letter = _idx_to_letters(col)
+    key = (row, col)
+    stripped = text.strip()
+    is_formula = stripped.startswith("=")
+
+    entry = None
+    value = None
+    if is_formula:
+        if key not in user and len(user) >= MAX_USER_FORMULAS:
+            raise ValueError(f"Terlalu banyak rumus isian (maksimal {MAX_USER_FORMULAS} per sheet)")
+        trial = dict(user)
+        trial[key] = stripped
+        try:
+            deps = cell_formula.check(stripped, records, trial, nrows)
+        except cell_formula.FormulaSyntaxError as e:
+            raise ValueError(str(e))
+        user = trial
+        entry = {"f": stripped, "deps": deps, "x": False, "u": True}
+    else:
+        value = _parse_literal(text)
+        user.pop(key, None)
+
+    # Perluas grid kalau sel berada di luar data (baris/kolom kosong di ujung tidak disimpan)
+    new_ncols = max(ncols, col + 1)
+    if new_ncols > ncols:
+        columns = _letters_list(new_ncols)
+    for rw in records:
+        if len(rw) < new_ncols:
+            rw.extend([None] * (new_ncols - len(rw)))
+    if row >= nrows:
+        records.extend([[None] * new_ncols for _ in range(row + 1 - nrows)])
+
+    # Catat / hapus rumus di sel ini (menimpa rumus bawaan file juga)
+    cells = formula_cells.setdefault(str(row), {})
+    if entry:
+        cells[letter] = entry
+    else:
+        cells.pop(letter, None)
+    if not cells:
+        formula_cells.pop(str(row), None)
+
+    if not is_formula:
+        records[row][col] = value
+
+    # Hitung ulang semua rumus isian user (urutan ketergantungan & referensi melingkar ditangani evaluator)
+    changes = {}
+    for (r, c), v in cell_formula.evaluate_all(records, user).items():
+        if key == (r, c) or records[r][c] != v:
+            changes[(r, c)] = v
+        records[r][c] = v
+    if not is_formula:
+        changes[key] = value
+
+    db.update_working_data(file_id, sheet_name, records, columns)
+    db.update_formula_cells(file_id, sheet_name, formula_cells)
+    return {
+        "total_rows": len(records),
         "total_cols": len(columns),
         "columns": columns,
-        "changes": [{"r": row, "c": col, "v": value}],
+        "changes": [{"r": r, "c": c, "v": v} for (r, c), v in changes.items()],
         "formula_cells": _formula_cells_view(formula_cells, dirty),
     }
 
 
-# ---------------------------------------------------------------------------
-# [6] Ekspor
-#     Bila ada sheet mode 'rows': tulis xlsx baris-per-baris (xlsxwriter constant_memory),
-#     baris dibaca bertahap dari database. pandas.to_excel + openpyxl untuk 50 ribu baris
-#     lambat dan memakan memori besar. File tanpa sheet besar tetap lewat jalur lama.
-# ---------------------------------------------------------------------------
+def reset_to_original(file_id):
+    db.reset_working_data(file_id)
 
-def _export_streaming(file_id, sheet_names):
-    import xlsxwriter
 
-    output = io.BytesIO()
-    wb = xlsxwriter.Workbook(output, {
-        "constant_memory": True,       # baris yang sudah ditulis langsung dibuang dari memori
-        "nan_inf_to_errors": True,
-        "strings_to_urls": False,      # teks "http://..." tetap teks (batas 65 rb hyperlink/sheet)
-    })
-    try:
-        for name in sheet_names:
-            ws = wb.add_worksheet(name[:31])
-            storage, _n = db.sheet_storage(file_id, name)
-            if storage == "rows":
-                rows = db.iter_rows(file_id, name)
-            else:
-                rows = db.get_sheet(file_id, name, version="working") or []
-            for r, row in enumerate(rows):
-                ws.write_row(r, 0, row)
-    finally:
-        wb.close()
-    output.seek(0)
-    return output
-
+# ---------- Export working copy jadi file baru (bukan menimpa file asli) ----------
 
 def export_working_copy(file_id):
     file_meta = db.get_file(file_id)
     sheet_names = db.list_sheet_names(file_id)
-    output = None
-    if db.has_rows_mode(file_id):
-        try:
-            output = _export_streaming(file_id, sheet_names)
-        except ImportError:
-            output = None  # xlsxwriter belum terpasang -> jalur lama di bawah (lebih lambat)
-    if output is None:
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine="openpyxl") as writer:
-            for sheet_name in sheet_names:
-                columns = _get_columns(file_id, sheet_name)
-                records = db.get_sheet(file_id, sheet_name, version="working")
-                df = records_to_df(records, columns)
-                # header=False: grid ditulis apa adanya (baris 1 = baris 1), tanpa baris huruf A/B/C
-                df.to_excel(writer, sheet_name=sheet_name[:31], index=False, header=False)
-        output.seek(0)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        for sheet_name in sheet_names:
+            columns = _get_columns(file_id, sheet_name)
+            records = db.get_sheet(file_id, sheet_name, version="working")
+            df = records_to_df(records, columns)
+            # header=False: grid ditulis apa adanya (baris 1 = baris 1), tanpa baris huruf A/B/C
+            df.to_excel(writer, sheet_name=sheet_name[:31], index=False, header=False)
+    output.seek(0)
     download_name = f"edited_{file_meta['filename']}"
     return send_file(
         output,
