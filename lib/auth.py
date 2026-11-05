@@ -53,7 +53,7 @@ _DUMMY_HASH = generate_password_hash("dummy-password-for-timing")
 GOOGLE_ISSUERS = ("accounts.google.com", "https://accounts.google.com")
 
 # Halaman/endpoint yang boleh diakses tanpa login saat REQUIRE_LOGIN aktif
-_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/cara-kerja", "/api/me", "/api/admin/usage", "/favicon.ico")
+_PUBLIC_PREFIXES = ("/static/", "/auth/", "/login", "/daftar", "/cara-kerja", "/privasi", "/syarat", "/api/me", "/api/admin/usage", "/api/cron/", "/favicon.ico")
 
 
 def _client_id():
@@ -264,6 +264,39 @@ def register_routes(app):
         if not saved:
             return _json_error("username_taken", 409)
         return jsonify({"ok": True, "username": username})
+
+    @app.route("/api/settings/delete-account", methods=["POST"])
+    def api_settings_delete_account():
+        """Hapus akun + semua file/chat. Wajib login + CSRF + confirm=true; akun ber-kata-sandi juga
+        wajib memasukkan kata sandi (tebakan salah dihitung seperti di ganti-kata-sandi)."""
+        user, err = _settings_guard()
+        if err:
+            return err
+        data = request.get_json(silent=True) or {}
+        if data.get("confirm") is not True:
+            return _json_error("confirm_required", 400)
+        try:
+            info = db.get_user_auth(user["id"]) or {}
+        except Exception:
+            return _json_error("failed", 500)
+        stored = info.get("password_hash") or ""
+        if stored and not stored.startswith("!"):
+            if info.get("is_locked"):
+                return _json_error("locked", 429, minutes=max(int(info.get("lock_minutes") or 1), 1))
+            current = str(data.get("current_password", ""))
+            if not current or not check_password_hash(stored, current[:PASSWORD_MAX]):
+                try:
+                    db.record_login_failure(user["id"], MAX_FAILED_ATTEMPTS, LOCK_MINUTES)
+                except Exception:
+                    pass
+                return _json_error("current_wrong", 401)
+        try:
+            deleted = db.delete_user_account(user["id"])
+        except Exception:
+            return _json_error("failed", 500)
+        session.clear()
+        session["session_id"] = str(uuid.uuid4())  # kembali jadi tamu baru
+        return jsonify({"ok": True, "deleted_files": deleted, "redirect": "/"})
 
     @app.route("/api/settings/password", methods=["POST"])
     def api_settings_password():
