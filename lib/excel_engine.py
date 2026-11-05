@@ -377,6 +377,7 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
         return _duplicate_response(dup)
 
     engine = _pick_engine(filename)
+    _check_archive_size(raw_bytes)
     try:
         xls = pd.ExcelFile(io.BytesIO(raw_bytes), engine=engine)
     except ImportError:
@@ -390,14 +391,21 @@ def _ingest_bytes(raw_bytes, filename, session_id, source="upload", source_key=N
             "File/spreadsheet tidak bisa dibaca. Pastikan formatnya didukung "
             "(.xlsx/.xls/.xlsm) dan, untuk link, aksesnya publik."
         )
+    if len(xls.sheet_names) > MAX_SHEETS:
+        raise ValueError(f"File punya {len(xls.sheet_names)} sheet (maksimal {MAX_SHEETS}). Kurangi jumlah sheet lalu unggah lagi.")
     file_id = str(uuid.uuid4())
     db.create_file(file_id, session_id, filename, [], source=source,
                    content_hash=content_hash, source_key=source_key)
 
     sheet_names = []
+    total_cells = 0
     for sheet_name in xls.sheet_names:
         # dtype=object: nilai dibaca apa adanya (angka tetap angka, teks tetap teks)
         raw_df = pd.read_excel(xls, sheet_name=sheet_name, header=None, dtype=object)
+        total_cells += raw_df.size
+        if raw_df.size > MAX_SHEET_CELLS or total_cells > MAX_TOTAL_CELLS:
+            db.delete_file(session_id, file_id)  # batalkan file setengah jadi
+            raise ValueError(_too_big_msg(sheet_name, raw_df.shape[0], raw_df.shape[1]))
         grid = _build_grid(raw_df)
         if grid is None:
             continue
@@ -858,6 +866,40 @@ def reset_to_original(file_id):
 
 # ---------- Export working copy jadi file baru (bukan menimpa file asli) ----------
 
+# ---------- Batas unggahan (S6) ----------
+# Di-env supaya bisa disesuaikan dengan memori fungsi Vercel Anda.
+MAX_SHEETS = int(os.environ.get("MAX_SHEETS", "30") or 30)
+MAX_SHEET_CELLS = int(os.environ.get("MAX_SHEET_CELLS", "500000") or 500000)    # baris x kolom per sheet
+MAX_TOTAL_CELLS = int(os.environ.get("MAX_TOTAL_CELLS", "1000000") or 1000000)  # seluruh sheet dalam 1 file
+MAX_UNZIPPED_MB = int(os.environ.get("MAX_UNZIPPED_MB", "60") or 60)            # isi .xlsx setelah dibuka
+MAX_ZIP_RATIO = 200                                                              # rasio kompresi mencurigakan
+
+
+def _check_archive_size(raw_bytes):
+    """Tolak .xlsx/.xlsm yang 'meledak' saat dibuka (zip bomb) SEBELUM diparse. .xls (OLE) bukan zip -> dilewati."""
+    import zipfile
+    if not zipfile.is_zipfile(io.BytesIO(raw_bytes)):
+        return
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw_bytes)) as z:
+            infos = z.infolist()
+    except zipfile.BadZipFile:
+        return
+    total = sum(i.file_size for i in infos)
+    packed = max(sum(i.compress_size for i in infos), 1)
+    if total > MAX_UNZIPPED_MB * 1024 * 1024 or (total > 20 * 1024 * 1024 and total / packed > MAX_ZIP_RATIO):
+        raise ValueError(
+            f"File ini terlalu besar saat dibuka (lebih dari {MAX_UNZIPPED_MB} MB isi data). "
+            "Kurangi data (hapus sheet/kolom yang tidak perlu) lalu unggah lagi."
+        )
+
+
+def _too_big_msg(sheet_name, rows, cols):
+    return (f"Sheet \"{sheet_name}\" terlalu besar ({rows:,} baris × {cols:,} kolom). "
+            f"Maksimal {MAX_SHEET_CELLS:,} sel per sheet dan {MAX_TOTAL_CELLS:,} sel per file. "
+            "Pecah datanya atau hapus kolom/baris yang tidak perlu.").replace(",", ".")
+
+
 def export_working_copy(file_id):
     file_meta = db.get_file(file_id)
     sheet_names = db.list_sheet_names(file_id)
@@ -869,6 +911,13 @@ def export_working_copy(file_id):
             df = records_to_df(records, columns)
             # header=False: grid ditulis apa adanya (baris 1 = baris 1), tanpa baris huruf A/B/C
             df.to_excel(writer, sheet_name=sheet_name[:31], index=False, header=False)
+            # S4: openpyxl menganggap teks berawalan "=" sebagai FORMULA. Nilai di grid adalah data/hasil
+            # hitung (bukan rumus), jadi semua dipaksa jadi teks supaya file sumber tak tepercaya tidak
+            # bisa menyelundupkan formula (mis. =HYPERLINK / =cmd|...) ke file unduhan.
+            for row in writer.sheets[sheet_name[:31]].iter_rows():
+                for cell in row:
+                    if cell.data_type == "f":
+                        cell.data_type = "s"
     output.seek(0)
     download_name = f"edited_{file_meta['filename']}"
     return send_file(
