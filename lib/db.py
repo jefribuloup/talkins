@@ -45,6 +45,50 @@ _LARGE_MODE_MIGRATIONS = (
             FOREIGN KEY (file_id, sheet_name) REFERENCES sheets(file_id, sheet_name) ON DELETE CASCADE
         )""",
 )
+
+_SCHEMA_MIGRATIONS = (
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_columns JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS formula_cells JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS row_order_dirty BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS column_letters JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE sheets ADD COLUMN IF NOT EXISTS original_meta JSONB NOT NULL DEFAULT '{}'",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'upload'",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS content_hash TEXT",
+    "ALTER TABLE files ADD COLUMN IF NOT EXISTS source_key TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_files_session_hash ON files(session_id, content_hash)",
+    "CREATE INDEX IF NOT EXISTS idx_files_session_srckey ON files(session_id, source_key)",
+    """CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            google_sub TEXT NOT NULL UNIQUE,
+            email TEXT NOT NULL,
+            name TEXT,
+            picture TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_login_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )""",
+    "CREATE INDEX IF NOT EXISTS idx_users_email ON users(lower(email))",
+    "ALTER TABLE users ALTER COLUMN google_sub DROP NOT NULL",
+    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS username TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_attempts INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS provider TEXT",
+    "UPDATE users SET provider = CASE WHEN password_hash IS NOT NULL THEN 'manual' ELSE 'google' END WHERE provider IS NULL",
+    # Pembeda akun manual vs Google kini kolom `provider` (bukan isi password_hash)
+    "DROP INDEX IF EXISTS idx_users_email_manual",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_manual_v2 ON users(lower(email)) WHERE provider = 'manual'",
+    # Akun Google lama: isi password_hash dengan penanda "terkunci" (bukan hash asli, tidak bisa dipakai login)
+    "UPDATE users SET password_hash = '" + GOOGLE_NO_PASSWORD + "' WHERE provider = 'google' AND password_hash IS NULL",
+    "CREATE TABLE IF NOT EXISTS rate_limits (key TEXT NOT NULL, bucket TEXT NOT NULL, window_id BIGINT NOT NULL, count INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ NOT NULL, PRIMARY KEY (key, bucket, window_id))",
+    "CREATE INDEX IF NOT EXISTS idx_rate_limits_exp ON rate_limits(expires_at)",
+    "CREATE TABLE IF NOT EXISTS usage_events (id BIGSERIAL PRIMARY KEY, user_id TEXT, session_id TEXT, kind TEXT NOT NULL, credits INTEGER NOT NULL DEFAULT 0, tokens_in INTEGER, tokens_out INTEGER, model TEXT, provider TEXT, file_id TEXT, ok BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_events(user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_events(session_id, created_at)",
+)
+_schema_ready = False
+
 _SCHEMA_MIGRATIONS = _SCHEMA_MIGRATIONS + _LARGE_MODE_MIGRATIONS
 
 
