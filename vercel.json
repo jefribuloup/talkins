@@ -1,11 +1,35 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/index.py", "use": "@vercel/python", "config": { "maxDuration": 60 } },
-    { "src": "static/**", "use": "@vercel/static" }
+    {
+      "src": "api/index.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxDuration": 60
+      }
+    },
+    {
+      "src": "static/**",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    { "src": "/static/(.*)", "headers": { "X-Content-Type-Options": "nosniff" }, "dest": "/static/$1" },
-    { "src": "/(.*)", "dest": "api/index.py" }
+    {
+      "src": "/static/(.*)",
+      "headers": {
+        "X-Content-Type-Options": "nosniff"
+      },
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "api/index.py"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/purge",
+      "schedule": "0 3 * * *"
+    }
   ]
 }
