@@ -83,6 +83,27 @@
     </section>
 
   </div>
+
+  <section class="settings-card settings-data">
+    <h2 data-i18n="settings.data.title">Data &amp; privasi</h2>
+    <p class="settings-desc" data-i18n-html="settings.data.desc">Kamu bisa menghapus datamu kapan saja. Lihat <a href="/privasi">Kebijakan Privasi</a> untuk rinciannya.</p>
+    <div class="settings-form">
+      <button type="button" class="btn btn-danger" data-action="delete-data" data-i18n="legal.delete.btn">Hapus semua file &amp; riwayat chat saya</button>
+      <p class="settings-status legal-status" role="status" aria-live="polite" hidden></p>
+    </div>
+    <h3 class="settings-subtitle" data-i18n="settings.data.accountTitle">Hapus akun</h3>
+    <p class="settings-desc" data-i18n="settings.data.accountDesc">Menghapus akun beserta semua file dan riwayat chat secara permanen. Tindakan ini tidak bisa dibatalkan.</p>
+    <div class="settings-form">
+      {% if current_user.has_password %}
+      <label class="login-field">
+        <span class="login-label" data-i18n="settings.password.current">Kata sandi lama</span>
+        <input type="password" id="deleteAccountPassword" autocomplete="current-password" maxlength="128">
+      </label>
+      {% endif %}
+      <button type="button" class="btn btn-danger" data-action="delete-account" data-i18n="settings.data.accountBtn">Hapus akun saya</button>
+      <p class="settings-status legal-status" role="status" aria-live="polite" hidden></p>
+    </div>
+  </section>
 </main>
 
 {% include "partials/footer.html" %}
@@ -93,5 +114,7 @@
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/router.js"></script>
 <script src="/static/js/settings.js"></script>
+<script src="/static/js/confirm.js"></script>
+<script src="/static/js/legal.js"></script>
 </body>
 </html>
