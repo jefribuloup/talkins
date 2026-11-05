@@ -237,6 +237,58 @@ def build_deck(file_id, spec):
 
 # ---------------------------------------------------------------- AI polish
 
+# ---------- Validasi deck dari klien (S8) ----------
+MAX_DECK_SLIDES = 30
+MAX_DECK_BYTES = 200 * 1024
+MAX_DECK_STR = 1000      # panjang satu teks
+MAX_DECK_LIST = 200      # panjang satu daftar (poin, label, nilai, baris)
+MAX_DECK_NODES = 6000    # total elemen dalam deck
+MAX_DECK_DEPTH = 6
+_SLIDE_TYPES = {"title", "kpis", "chart", "table", "findings", "closing"}
+
+
+def validate_deck(deck):
+    """Deck datang dari browser (tidak tepercaya): batasi ukuran/bentuknya sebelum dipolish AI atau
+    dirender ke PPTX, supaya tidak bisa dipakai membebani CPU/memori atau biaya LLM. Raise ValueError."""
+    import json as _json
+    if not isinstance(deck, dict) or not isinstance(deck.get("slides"), list) or not deck["slides"]:
+        raise ValueError("Deck slide tidak valid.")
+    if len(deck["slides"]) > MAX_DECK_SLIDES:
+        raise ValueError(f"Terlalu banyak slide (maksimal {MAX_DECK_SLIDES}).")
+    try:
+        if len(_json.dumps(deck, ensure_ascii=False)) > MAX_DECK_BYTES:
+            raise ValueError(f"Deck terlalu besar (maksimal {MAX_DECK_BYTES // 1024} KB).")
+    except (TypeError, ValueError) as e:
+        raise ValueError(str(e) if "terlalu besar" in str(e) else "Deck slide tidak valid.")
+    for s in deck["slides"]:
+        if not isinstance(s, dict) or s.get("type") not in _SLIDE_TYPES:
+            raise ValueError("Ada slide dengan jenis yang tidak dikenal.")
+    nodes = [0]
+
+    def walk(x, depth):
+        nodes[0] += 1
+        if nodes[0] > MAX_DECK_NODES or depth > MAX_DECK_DEPTH:
+            raise ValueError("Struktur deck terlalu kompleks.")
+        if isinstance(x, str):
+            if len(x) > MAX_DECK_STR:
+                raise ValueError("Ada teks slide yang terlalu panjang.")
+        elif isinstance(x, list):
+            if len(x) > MAX_DECK_LIST:
+                raise ValueError("Ada daftar di slide yang terlalu panjang.")
+            for v in x:
+                walk(v, depth + 1)
+        elif isinstance(x, dict):
+            if len(x) > 60:
+                raise ValueError("Struktur deck terlalu kompleks.")
+            for k, v in x.items():
+                walk(k, depth + 1)
+                walk(v, depth + 1)
+        elif not (x is None or isinstance(x, (bool, int, float))):
+            raise ValueError("Deck slide tidak valid.")
+
+    walk(deck, 0)
+
+
 def polish_deck(deck):
     """Minta AI menulis ulang judul & poin tiap slide jadi kalimat insight (gaya Gamma).
     Hanya teks; angka/grafik tidak disentuh. Return {"slides": {id: {title, bullets}}} atau {}."""
