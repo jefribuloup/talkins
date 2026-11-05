@@ -550,6 +550,67 @@ def get_file(file_id):
     return dict(row) if row else None
 
 
+def delete_all_files_for_owner(session_id):
+    """Hapus SEMUA file milik satu pemilik (uuid tamu atau 'user:<id>'). Sheet dan riwayat chat ikut
+    terhapus lewat ON DELETE CASCADE. Referensi file di catatan pemakaian dikosongkan. Return jumlah file."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM files WHERE session_id=%s", (session_id,))
+        n = cur.rowcount
+        cur.execute("UPDATE usage_events SET file_id=NULL WHERE session_id=%s", (session_id,))
+        conn.commit()
+        cur.close()
+        return n
+    finally:
+        conn.close()
+
+
+def delete_user_account(user_id):
+    """Hapus akun beserta semua file/chat-nya. Catatan pemakaian AI tidak dihapus tetapi dilepas dari
+    identitas (user_id/session_id/file_id dikosongkan) supaya tinggal data biaya anonim. Return jumlah file."""
+    sid = f"user:{user_id}"
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM files WHERE session_id=%s", (sid,))
+        n = cur.rowcount
+        cur.execute(
+            "UPDATE usage_events SET user_id=NULL, session_id=NULL, file_id=NULL WHERE user_id=%s OR session_id=%s",
+            (str(user_id), sid),
+        )
+        cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
+        conn.commit()
+        cur.close()
+        return n
+    finally:
+        conn.close()
+
+
+def purge_expired(guest_days):
+    """Retensi otomatis (dipanggil cron harian): hapus file milik TAMU yang diunggah lebih dari
+    `guest_days` hari lalu, baris rate_limits yang sudah kedaluwarsa, dan catatan pemakaian AI > 12 bulan.
+    File milik akun login tidak disentuh. Return dict jumlah baris terhapus."""
+    guest_days = max(1, int(guest_days))
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "DELETE FROM files WHERE session_id NOT LIKE 'user:%%' AND uploaded_at < now() - make_interval(days => %s)",
+            (guest_days,),
+        )
+        files = cur.rowcount
+        cur.execute("DELETE FROM rate_limits WHERE expires_at < now()")
+        limits = cur.rowcount
+        cur.execute("DELETE FROM usage_events WHERE created_at < now() - interval '12 months'")
+        usage = cur.rowcount
+        conn.commit()
+        cur.close()
+        return {"guest_files": files, "rate_limits": limits, "usage_events": usage}
+    finally:
+        conn.close()
+
+
 def get_file_owner(file_id):
     """session_id pemilik file (uuid tamu atau 'user:<id>'), atau None kalau file tidak ada /
     sudah dihapus / id bukan UUID yang valid."""
