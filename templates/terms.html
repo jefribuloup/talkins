@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="max-upload-mb" content="{{ max_upload_mb }}">
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<title>Syarat Layanan — Talkins</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/main.css">
+<link rel="stylesheet" href="/static/css/legal.css">
+</head>
+<body>
+
+{% include "partials/navbar.html" %}
+
+<main class="legal">
+  <header class="legal-head">
+    <h1><span class="lang-id">Syarat Layanan</span><span class="lang-en">Terms of Service</span></h1>
+    <p class="legal-updated"><span class="lang-id">Terakhir diperbarui: {{ updated }}</span><span class="lang-en">Last updated: {{ updated }}</span></p>
+  </header>
+
+  <section class="legal-sec" id="layanan">
+    <div class="lang-id"><h2>Layanan</h2>
+      <p>Talkins dikelola oleh <strong>{{ operator }}</strong> (“kami”). Talkins membantu kamu membaca, merapikan, dan menganalisis file spreadsheet, mendapat saran rumus, bertanya soal data kepada AI, dan membuat slide. Dengan memakai Talkins, kamu menyetujui syarat ini dan <a href="/privasi">Kebijakan Privasi</a>.</p>
+    </div>
+    <div class="lang-en"><h2>The service</h2>
+      <p>Talkins is operated by <strong>{{ operator }}</strong> (“we”). Talkins helps you read, tidy, and analyze spreadsheet files, get formula suggestions, ask an AI about your data, and create slides. By using Talkins you agree to these terms and the <a href="/privasi">Privacy Policy</a>.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="akun">
+    <div class="lang-id"><h2>Usia dan akun</h2>
+      <p>Kamu harus berusia minimal 18 tahun. Jaga kerahasiaan kata sandi dan akunmu; kamu bertanggung jawab atas aktivitas di akunmu.</p>
+    </div>
+    <div class="lang-en"><h2>Age and account</h2>
+      <p>You must be at least 18 years old. Keep your password and account confidential; you are responsible for activity under your account.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="aturan">
+    <div class="lang-id"><h2>Aturan penggunaan</h2>
+      <p>Kamu tidak boleh:</p>
+      <ul>
+        <li>mengunggah data yang melanggar hukum atau hak pihak lain, atau data pribadi orang lain tanpa dasar yang sah;</li>
+        <li>mengunggah malware, atau mencoba membobol, membebani, atau menyalahgunakan layanan (termasuk menyalahgunakan unggah lewat link);</li>
+        <li>memakai otomatisasi massal atau mengakali batas pemakaian;</li>
+        <li>memakai layanan untuk melanggar hukum atau merugikan orang lain.</li>
+      </ul>
+    </div>
+    <div class="lang-en"><h2>Acceptable use</h2>
+      <p>You must not:</p>
+      <ul>
+        <li>upload data that violates the law or others’ rights, or other people’s personal data without a lawful basis;</li>
+        <li>upload malware, or try to break into, overload, or abuse the service (including abusing upload-by-link);</li>
+        <li>use mass automation or circumvent usage limits;</li>
+        <li>use the service to break the law or harm others.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="konten">
+    <div class="lang-id"><h2>Datamu</h2>
+      <p>File dan data yang kamu unggah tetap milikmu. Kamu memberi kami izin terbatas untuk memprosesnya (termasuk mengirim cuplikan ke penyedia AI, lihat <a href="/privasi#ai">Kebijakan Privasi</a>) hanya untuk menjalankan layanan untukmu. File aslimu di perangkatmu tidak diubah; perubahan terjadi di salinan kerja.</p>
+    </div>
+    <div class="lang-en"><h2>Your data</h2>
+      <p>The files and data you upload remain yours. You give us a limited permission to process them (including sending excerpts to AI providers, see the <a href="/privasi#ai">Privacy Policy</a>) solely to run the service for you. Your original file on your device is not changed; edits happen in a working copy.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="ai-hasil">
+    <div class="lang-id"><h2>Hasil AI dan rumus</h2>
+      <p>Jawaban AI, saran rumus, dan hasil hitung bisa keliru atau tidak lengkap. Periksa kembali sebelum dipakai untuk keputusan penting; hasilnya bukan nasihat profesional (hukum, keuangan, medis, dan lainnya).</p>
+    </div>
+    <div class="lang-en"><h2>AI output and formulas</h2>
+      <p>AI answers, formula suggestions, and calculation results can be wrong or incomplete. Double-check before relying on them for important decisions; they are not professional advice (legal, financial, medical, or otherwise).</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="ketersediaan">
+    <div class="lang-id"><h2>Ketersediaan dan batas pemakaian</h2>
+      <p>Layanan diberikan “apa adanya”. Kami menerapkan batas pemakaian, dapat mengubah atau menghentikan fitur, dan dapat menangguhkan akun yang melanggar syarat ini.</p>
+    </div>
+    <div class="lang-en"><h2>Availability and usage limits</h2>
+      <p>The service is provided “as is”. We apply usage limits, may change or discontinue features, and may suspend accounts that violate these terms.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="merek">
+    <div class="lang-id"><h2>Merek pihak ketiga</h2>
+      <p>Microsoft dan Excel adalah merek dagang Microsoft group of companies. Google dan Google Drive adalah merek dagang Google LLC. Talkins tidak berafiliasi dengan, dan tidak didukung oleh, perusahaan-perusahaan tersebut.</p>
+    </div>
+    <div class="lang-en"><h2>Third-party trademarks</h2>
+      <p>Microsoft and Excel are trademarks of the Microsoft group of companies. Google and Google Drive are trademarks of Google LLC. Talkins is not affiliated with or endorsed by those companies.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="tanggung-jawab">
+    <div class="lang-id"><h2>Batas tanggung jawab</h2>
+      <p>Sejauh diizinkan hukum, kami tidak bertanggung jawab atas kerugian tidak langsung atau kehilangan data akibat pemakaian layanan. Simpan salinan file pentingmu sendiri.</p>
+    </div>
+    <div class="lang-en"><h2>Limitation of liability</h2>
+      <p>To the extent permitted by law, we are not liable for indirect losses or data loss arising from use of the service. Keep your own copies of important files.</p>
+    </div>
+  </section>
+
+  <section class="legal-sec" id="hukum">
+    <div class="lang-id"><h2>Hukum yang berlaku dan kontak</h2>
+      <p>Syarat ini tunduk pada hukum Republik Indonesia. Kami dapat memperbarui syarat ini; tanggal pembaruan di atas akan berubah dan pemakaian lanjutan berarti kamu menerima perubahan tersebut.</p>
+      {% if contact_email %}<p>Hubungi kami di <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>{% else %}<p>Kontak pengelola tersedia melalui halaman akun di Talkins.</p>{% endif %}
+    </div>
+    <div class="lang-en"><h2>Governing law and contact</h2>
+      <p>These terms are governed by the laws of the Republic of Indonesia. We may update these terms; the update date above will change and continued use means you accept the changes.</p>
+      {% if contact_email %}<p>Contact us at <a href="mailto:{{ contact_email }}">{{ contact_email }}</a>.</p>{% else %}<p>The operator can be reached through the account page in Talkins.</p>{% endif %}
+    </div>
+  </section>
+
+</main>
+
+{% include "partials/footer.html" %}
+
+<script src="/static/js/http.js"></script>
+<script src="/static/js/preloader.js"></script>
+<script src="/static/js/theme.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script src="/static/js/router.js"></script>
+<script src="/static/js/confirm.js"></script>
+<script src="/static/js/legal.js"></script>
+</body>
+</html>
