@@ -526,6 +526,10 @@ def polish_slides(file_id):
     deck = (request.get_json(silent=True) or {}).get("deck") or {}
     if not deck.get("slides"):  # tolak sebelum menghitung kuota
         return jsonify({"error": "Slide masih kosong, belum ada yang bisa dirapikan."}), 400
+    try:
+        slide_engine.validate_deck(deck)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     blocked = guard.guard("polish", ai=True)
     if blocked:
         return blocked
@@ -543,6 +547,10 @@ def download_pptx(file_id):
     deck = body.get("deck") or {}
     if not deck.get("slides"):
         return jsonify({"error": "Slide masih kosong, belum ada yang bisa diunduh."}), 400
+    try:
+        slide_engine.validate_deck(deck)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     blocked = guard.guard("heavy")
     if blocked:
         return blocked
