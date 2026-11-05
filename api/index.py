@@ -230,6 +230,60 @@ def how_it_works():
     return render_template("how.html")
 
 
+def guest_retention_days():
+    """Lama file tamu disimpan sebelum dihapus otomatis (env GUEST_RETENTION_DAYS, default 30)."""
+    try:
+        return max(1, int(os.environ.get("GUEST_RETENTION_DAYS", "30")))
+    except ValueError:
+        return 30
+
+
+def _legal_context():
+    """Data untuk halaman Privasi & Syarat. Isi env COMPANY_NAME (nama badan usaha) dan CONTACT_EMAIL."""
+    return {
+        "operator": os.environ.get("COMPANY_NAME", "").strip() or "Talkins",
+        "contact_email": os.environ.get("CONTACT_EMAIL", "").strip(),
+        "guest_days": guest_retention_days(),
+        "updated": "5 November 2026",
+    }
+
+
+@app.route("/privasi")
+def privacy_page():
+    return render_template("privacy.html", **_legal_context())
+
+
+@app.route("/syarat")
+def terms_page():
+    return render_template("terms.html", **_legal_context())
+
+
+@app.route("/api/data/delete-all", methods=["POST"])
+def delete_all_data():
+    """Hapus semua file & riwayat chat milik sesi/akun ini. Wajib body JSON {"confirm": true}
+    (JSON + cookie SameSite=Lax mencegah pemicu lintas situs lewat form)."""
+    blocked = guard.guard("edit")
+    if blocked:
+        return blocked
+    if (request.get_json(silent=True) or {}).get("confirm") is not True:
+        return jsonify({"error": "confirm_required"}), 400
+    deleted = db.delete_all_files_for_owner(session["session_id"])
+    _OWNER_OK.clear()
+    return jsonify({"ok": True, "deleted_files": deleted})
+
+
+@app.route("/api/cron/purge", methods=["GET"])
+def cron_purge():
+    """Retensi otomatis harian (lihat vercel.json crons). Hanya menerima header
+    Authorization: Bearer <CRON_SECRET> (Vercel mengirimnya otomatis bila env CRON_SECRET diisi);
+    selain itu dijawab 404."""
+    secret = os.environ.get("CRON_SECRET", "").strip()
+    given = request.headers.get("Authorization", "")
+    if not secret or not secrets.compare_digest(given.encode(), f"Bearer {secret}".encode()):
+        return Response(status=404)
+    return jsonify({"ok": True, **db.purge_expired(guest_retention_days())})
+
+
 @app.route("/dashboard")
 def dashboard():
     return render_template("dashboard.html")
